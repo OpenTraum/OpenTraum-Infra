@@ -1,10 +1,8 @@
-version: "3.9"
-
 # =============================================================================
 # OpenTraum — Full Local Development Environment
 # =============================================================================
 # Usage: docker compose up -d
-# All microservices + infrastructure for full integration testing
+# All microservices + frontend + infrastructure for full integration testing
 # =============================================================================
 
 services:
@@ -104,6 +102,24 @@ services:
       - opentraum-net
 
   # ---------------------------------------------------------------------------
+  # Frontend (Vue 3 + Nginx)
+  # ---------------------------------------------------------------------------
+  web:
+    image: opentraum/web:latest
+    container_name: opentraum-web
+    restart: unless-stopped
+    build:
+      context: ../OpenTraum-Web
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - opentraum-net
+
+  # ---------------------------------------------------------------------------
   # Microservices
   # ---------------------------------------------------------------------------
   gateway:
@@ -112,19 +128,33 @@ services:
     restart: unless-stopped
     build:
       context: ../OpenTraum-gateway
-      dockerfile: Dockerfile
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
     ports:
       - "8080:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      SPRING_CLOUD_GATEWAY_ROUTES: ""
-      AUTH_SERVICE_URL: http://auth-service:8081
-      USER_SERVICE_URL: http://user-service:8082
-      EVENT_SERVICE_URL: http://event-service:8083
-      RESERVATION_SERVICE_URL: http://reservation-service:8084
-      PAYMENT_SERVICE_URL: http://payment-service:8085
+      SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: prod
+      # Redis
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      # JWT (auth-service와 동일)
+      JWT_SECRET: opentraum-default-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256
+      # Gateway 라우팅 (환경변수 기반)
+      SPRING_CLOUD_GATEWAY_ROUTES_0_ID: auth-service
+      SPRING_CLOUD_GATEWAY_ROUTES_0_URI: http://auth-service:8081
+      SPRING_CLOUD_GATEWAY_ROUTES_0_PREDICATES_0: Path=/api/v1/auth/**
+      SPRING_CLOUD_GATEWAY_ROUTES_1_ID: user-service
+      SPRING_CLOUD_GATEWAY_ROUTES_1_URI: http://user-service:8082
+      SPRING_CLOUD_GATEWAY_ROUTES_1_PREDICATES_0: Path=/api/v1/users/**,/api/v1/tenants/**
+      SPRING_CLOUD_GATEWAY_ROUTES_2_ID: event-service
+      SPRING_CLOUD_GATEWAY_ROUTES_2_URI: http://event-service:8083
+      SPRING_CLOUD_GATEWAY_ROUTES_2_PREDICATES_0: Path=/api/v1/concerts/**,/api/v1/schedules/**,/api/v1/admin/seats/**
+      SPRING_CLOUD_GATEWAY_ROUTES_3_ID: reservation-service
+      SPRING_CLOUD_GATEWAY_ROUTES_3_URI: http://reservation-service:8084
+      SPRING_CLOUD_GATEWAY_ROUTES_3_PREDICATES_0: Path=/api/v1/reservations/**,/api/v1/queue/**,/api/v1/live/**,/api/v1/lottery/**
+      SPRING_CLOUD_GATEWAY_ROUTES_4_ID: payment-service
+      SPRING_CLOUD_GATEWAY_ROUTES_4_URI: http://payment-service:8085
+      SPRING_CLOUD_GATEWAY_ROUTES_4_PREDICATES_0: Path=/api/v1/payment/**
     depends_on:
       redis:
         condition: service_healthy
@@ -143,17 +173,27 @@ services:
     restart: unless-stopped
     build:
       context: ../OpenTraum-auth-service
-      dockerfile: Dockerfile
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
     ports:
       - "8081:8081"
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/opentraum_auth
-      SPRING_DATASOURCE_USERNAME: opentraum
-      SPRING_DATASOURCE_PASSWORD: opentraum
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SERVER_PORT: 8081
+      # R2DBC (WebFlux 기반 — JDBC 아님)
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/opentraum_auth
+      SPRING_R2DBC_USERNAME: opentraum
+      SPRING_R2DBC_PASSWORD: opentraum
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: opentraum_auth
+      DB_USERNAME: opentraum
+      DB_PASSWORD: opentraum
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # JWT
+      JWT_SECRET: opentraum-default-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256
+      # Kafka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
       postgres:
         condition: service_healthy
@@ -176,17 +216,22 @@ services:
     restart: unless-stopped
     build:
       context: ../OpenTraum-user-service
-      dockerfile: Dockerfile
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
     ports:
       - "8082:8082"
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/opentraum_user
-      SPRING_DATASOURCE_USERNAME: opentraum
-      SPRING_DATASOURCE_PASSWORD: opentraum
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SERVER_PORT: 8082
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/opentraum_user
+      SPRING_R2DBC_USERNAME: opentraum
+      SPRING_R2DBC_PASSWORD: opentraum
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: opentraum_user
+      DB_USERNAME: opentraum
+      DB_PASSWORD: opentraum
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
       postgres:
         condition: service_healthy
@@ -209,17 +254,22 @@ services:
     restart: unless-stopped
     build:
       context: ../OpenTraum-event-service
-      dockerfile: Dockerfile
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
     ports:
       - "8083:8083"
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/opentraum_event
-      SPRING_DATASOURCE_USERNAME: opentraum
-      SPRING_DATASOURCE_PASSWORD: opentraum
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SERVER_PORT: 8083
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/opentraum_event
+      SPRING_R2DBC_USERNAME: opentraum
+      SPRING_R2DBC_PASSWORD: opentraum
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: opentraum_event
+      DB_USERNAME: opentraum
+      DB_PASSWORD: opentraum
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
       postgres:
         condition: service_healthy
@@ -242,17 +292,24 @@ services:
     restart: unless-stopped
     build:
       context: ../OpenTraum-reservation-service
-      dockerfile: Dockerfile
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
     ports:
       - "8084:8084"
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/opentraum_reservation
-      SPRING_DATASOURCE_USERNAME: opentraum
-      SPRING_DATASOURCE_PASSWORD: opentraum
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SERVER_PORT: 8084
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/opentraum_reservation
+      SPRING_R2DBC_USERNAME: opentraum
+      SPRING_R2DBC_PASSWORD: opentraum
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: opentraum_reservation
+      DB_USERNAME: opentraum
+      DB_PASSWORD: opentraum
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # 서비스 간 통신
+      EVENT_SERVICE_URL: http://event-service:8083
     depends_on:
       postgres:
         condition: service_healthy
@@ -275,17 +332,22 @@ services:
     restart: unless-stopped
     build:
       context: ../OpenTraum-payment-service
-      dockerfile: Dockerfile
+      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
     ports:
       - "8085:8085"
     environment:
-      SPRING_PROFILES_ACTIVE: local
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/opentraum_payment
-      SPRING_DATASOURCE_USERNAME: opentraum
-      SPRING_DATASOURCE_PASSWORD: opentraum
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SERVER_PORT: 8085
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/opentraum_payment
+      SPRING_R2DBC_USERNAME: opentraum
+      SPRING_R2DBC_PASSWORD: opentraum
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: opentraum_payment
+      DB_USERNAME: opentraum
+      DB_PASSWORD: opentraum
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
       postgres:
         condition: service_healthy
