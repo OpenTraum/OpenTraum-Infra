@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reservation-service
+  namespace: opentraum
+  labels:
+    app: reservation-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: reservation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reservation-service
+  template:
+    metadata:
+      labels:
+        app: reservation-service
+        app.kubernetes.io/part-of: opentraum
+        app.kubernetes.io/component: reservation
+    spec:
+      containers:
+        - name: reservation-service
+          image: opentraum/reservation-service:latest
+          ports:
+            - containerPort: 8084
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: opentraum-config
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://opentraum-postgres:5432/opentraum_reservation"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "250m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8084
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8084
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      restartPolicy: Always
