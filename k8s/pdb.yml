@@ -1,0 +1,42 @@
+---
+# Gateway — 트래픽 진입점이므로 롤링 업데이트 시 최소 가용성 보장
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+  namespace: opentraum
+  labels:
+    app.kubernetes.io/part-of: opentraum
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: gateway
+---
+# PostgreSQL — 데이터 유실 방지, eviction 차단
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: opentraum
+  labels:
+    app.kubernetes.io/part-of: opentraum
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: opentraum-postgres
+---
+# Kafka — 메시지 유실 방지
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-pdb
+  namespace: opentraum
+  labels:
+    app.kubernetes.io/part-of: opentraum
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: opentraum-kafka

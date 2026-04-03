@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentraum-postgres
+  namespace: opentraum
+  labels:
+    app: opentraum-postgres
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: opentraum-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP

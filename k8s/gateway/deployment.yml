@@ -19,21 +19,42 @@ spec:
         app.kubernetes.io/part-of: opentraum
         app.kubernetes.io/component: gateway
     spec:
+      terminationGracePeriodSeconds: 35
+      imagePullSecrets:
+        - name: harbor-registry-secret
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: opentraum
       containers:
         - name: gateway
-          image: opentraum/gateway:latest
+          image: amdp-registry.skala-ai.com/skala26a-cloud/opentraum-gateway:latest
           ports:
             - containerPort: 8080
               protocol: TCP
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
           envFrom:
             - configMapRef:
                 name: opentraum-config
+            - secretRef:
+                name: opentraum-secrets
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "250m"
-            limits:
               memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
               cpu: "500m"
           livenessProbe:
             httpGet:
