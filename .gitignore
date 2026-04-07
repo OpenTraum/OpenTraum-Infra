@@ -42,6 +42,7 @@ docker-compose.override.yml
 k8s/*-secret.yml
 k8s/**/secret.yml
 k8s/secrets/
+k8s/secrets.yml
 
 # =========================
 # Terraform (future)

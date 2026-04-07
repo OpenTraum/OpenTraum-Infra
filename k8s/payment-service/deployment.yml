@@ -19,24 +19,48 @@ spec:
         app.kubernetes.io/part-of: opentraum
         app.kubernetes.io/component: payment
     spec:
+      terminationGracePeriodSeconds: 35
+      imagePullSecrets:
+        - name: harbor-registry-secret
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: opentraum
       containers:
         - name: payment-service
-          image: opentraum/payment-service:latest
+          image: amdp-registry.skala-ai.com/skala26a-cloud/opentraum-payment-service:latest
           ports:
             - containerPort: 8085
               protocol: TCP
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
           envFrom:
             - configMapRef:
                 name: opentraum-config
+            - secretRef:
+                name: opentraum-secrets
           env:
-            - name: SPRING_DATASOURCE_URL
-              value: "jdbc:postgresql://opentraum-postgres:5432/opentraum_payment"
+            - name: DB_NAME
+              value: "opentraum_payment"
+            - name: SPRING_R2DBC_URL
+              value: "r2dbc:postgresql://opentraum-postgres:5432/opentraum_payment"
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "250m"
-            limits:
               memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
               cpu: "500m"
           livenessProbe:
             httpGet:

@@ -19,24 +19,46 @@ spec:
         app.kubernetes.io/part-of: opentraum
         app.kubernetes.io/component: event
     spec:
+      terminationGracePeriodSeconds: 35
+      imagePullSecrets:
+        - name: harbor-registry-secret
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: opentraum
       containers:
         - name: event-service
-          image: opentraum/event-service:latest
+          image: amdp-registry.skala-ai.com/skala26a-cloud/opentraum-event-service:latest
           ports:
             - containerPort: 8083
               protocol: TCP
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
           envFrom:
             - configMapRef:
                 name: opentraum-config
+            - secretRef:
+                name: opentraum-secrets
           env:
-            - name: SPRING_DATASOURCE_URL
-              value: "jdbc:postgresql://opentraum-postgres:5432/opentraum_event"
+            - name: DB_NAME
+              value: "opentraum_event"
+            - name: SPRING_R2DBC_URL
+              value: "r2dbc:postgresql://opentraum-postgres:5432/opentraum_event"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "250m"
-            limits:
               memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
               cpu: "500m"
           livenessProbe:
             httpGet:
