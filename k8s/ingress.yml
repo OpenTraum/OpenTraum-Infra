@@ -13,7 +13,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: opentraum.52.79.80.47.nip.io
+    - host: cloud1-team8.cloud.skala-ai.com
       http:
         paths:
           - path: /api
