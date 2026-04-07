@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-db
+  namespace: opentraum
+  labels:
+    app.kubernetes.io/part-of: opentraum
+data:
+  init-db.sh: |
+    #!/bin/bash
+    set -e
+    echo "========================================="
+    echo " OpenTraum: Initializing databases..."
+    echo "========================================="
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        CREATE DATABASE opentraum_auth OWNER = opentraum ENCODING = 'UTF8';
+        CREATE DATABASE opentraum_user OWNER = opentraum ENCODING = 'UTF8';
+        CREATE DATABASE opentraum_event OWNER = opentraum ENCODING = 'UTF8';
+        CREATE DATABASE opentraum_reservation OWNER = opentraum ENCODING = 'UTF8';
+        CREATE DATABASE opentraum_payment OWNER = opentraum ENCODING = 'UTF8';
+        GRANT ALL PRIVILEGES ON DATABASE opentraum_auth TO opentraum;
+        GRANT ALL PRIVILEGES ON DATABASE opentraum_user TO opentraum;
+        GRANT ALL PRIVILEGES ON DATABASE opentraum_event TO opentraum;
+        GRANT ALL PRIVILEGES ON DATABASE opentraum_reservation TO opentraum;
+        GRANT ALL PRIVILEGES ON DATABASE opentraum_payment TO opentraum;
+    EOSQL
+    echo "========================================="
+    echo " OpenTraum: All databases created!"
+    echo "========================================="
