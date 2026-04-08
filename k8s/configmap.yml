@@ -64,3 +64,4 @@ data:
   SPRING_PROFILES_ACTIVE: "prod"
   SERVER_SHUTDOWN: "graceful"
   SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: "30s"
+  # test: ArgoCD auto-deploy check
