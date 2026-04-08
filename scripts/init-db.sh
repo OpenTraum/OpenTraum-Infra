@@ -9,10 +9,6 @@
 
 set -e
 
-echo "========================================="
-echo " OpenTraum: Initializing databases..."
-echo "========================================="
-
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
 
     -- Auth Service Database
@@ -58,12 +54,3 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     GRANT ALL PRIVILEGES ON DATABASE opentraum_payment TO opentraum;
 
 EOSQL
-
-echo "========================================="
-echo " OpenTraum: All databases created!"
-echo "  - opentraum_auth"
-echo "  - opentraum_user"
-echo "  - opentraum_event"
-echo "  - opentraum_reservation"
-echo "  - opentraum_payment"
-echo "========================================="
