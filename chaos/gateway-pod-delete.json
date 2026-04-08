@@ -1,0 +1,64 @@
+{
+  "title": "Gateway Pod 삭제 후 자동 복구 검증",
+  "description": "단일 진입점인 Gateway Pod를 삭제하여 Kubernetes 자동 복구 능력을 검증한다. Pod 재생성 및 트래픽 수신까지의 복구 시간을 측정한다.",
+  "tags": ["kubernetes", "gateway", "pod-delete", "resilience"],
+  "contributions": {
+    "reliability": "high",
+    "security": "none",
+    "scalability": "medium"
+  },
+  "steady-state-hypothesis": {
+    "title": "Gateway 서비스가 정상 동작 중",
+    "probes": [
+      {
+        "type": "probe",
+        "name": "gateway-pod-is-running",
+        "tolerance": true,
+        "provider": {
+          "type": "python",
+          "module": "chaosk8s.pod.probes",
+          "func": "pods_in_phase",
+          "arguments": {
+            "label_selector": "app=gateway",
+            "phase": "Running",
+            "ns": "opentraum"
+          }
+        }
+      },
+      {
+        "type": "probe",
+        "name": "gateway-deployment-is-available",
+        "tolerance": true,
+        "provider": {
+          "type": "python",
+          "module": "chaosk8s.probes",
+          "func": "deployment_available_and_healthy",
+          "arguments": {
+            "name": "gateway",
+            "ns": "opentraum"
+          }
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "type": "action",
+      "name": "gateway-pod-삭제",
+      "provider": {
+        "type": "python",
+        "module": "chaosk8s.pod.actions",
+        "func": "terminate_pods",
+        "arguments": {
+          "label_selector": "app=gateway",
+          "ns": "opentraum",
+          "qty": 1
+        }
+      },
+      "pauses": {
+        "after": 40
+      }
+    }
+  ],
+  "rollbacks": []
+}
