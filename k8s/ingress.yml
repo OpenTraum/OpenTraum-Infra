@@ -13,7 +13,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: cloud1-team8.cloud.skala-ai.com
+    - host: skala3-cloud1-team8.cloud.skala-ai.com
       http:
         paths:
           - path: /api
