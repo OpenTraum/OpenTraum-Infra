@@ -9,11 +9,11 @@ data:
   # ---------------------------------------------------------------------------
   # Database
   # ---------------------------------------------------------------------------
-  SPRING_DATASOURCE_HOST: "opentraum-postgres"
-  SPRING_DATASOURCE_PORT: "5432"
+  SPRING_DATASOURCE_HOST: "opentraum-mariadb"
+  SPRING_DATASOURCE_PORT: "3306"
   SPRING_DATASOURCE_USERNAME: "opentraum"
-  DB_HOST: "opentraum-postgres"
-  DB_PORT: "5432"
+  DB_HOST: "opentraum-mariadb"
+  DB_PORT: "3306"
   DB_USERNAME: "opentraum"
 
   # ---------------------------------------------------------------------------
