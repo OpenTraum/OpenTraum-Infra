@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: opentraum-redis
-  namespace: opentraum
+  namespace: redis
   labels:
     app: opentraum-redis
     app.kubernetes.io/part-of: opentraum
