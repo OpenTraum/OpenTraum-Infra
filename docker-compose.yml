@@ -149,7 +149,7 @@ services:
       SPRING_CLOUD_GATEWAY_ROUTES_1_PREDICATES_0: Path=/api/v1/users/**,/api/v1/tenants/**
       SPRING_CLOUD_GATEWAY_ROUTES_2_ID: event-service
       SPRING_CLOUD_GATEWAY_ROUTES_2_URI: http://event-service:8083
-      SPRING_CLOUD_GATEWAY_ROUTES_2_PREDICATES_0: Path=/api/v1/concerts/**,/api/v1/schedules/**,/api/v1/admin/seats/**
+      SPRING_CLOUD_GATEWAY_ROUTES_2_PREDICATES_0: Path=/api/v1/concerts/**,/api/v1/schedules/**,/api/v1/admin/seats/**,/api/v1/admin/events/**,/api/v1/admin/venues/**
       SPRING_CLOUD_GATEWAY_ROUTES_3_ID: reservation-service
       SPRING_CLOUD_GATEWAY_ROUTES_3_URI: http://reservation-service:8084
       SPRING_CLOUD_GATEWAY_ROUTES_3_PREDICATES_0: Path=/api/v1/reservations/**,/api/v1/queue/**,/api/v1/live/**,/api/v1/lottery/**
@@ -271,6 +271,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # OpenAI (AI 이벤트 생성)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

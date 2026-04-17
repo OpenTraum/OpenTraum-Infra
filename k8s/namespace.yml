@@ -5,3 +5,27 @@ metadata:
   labels:
     app.kubernetes.io/part-of: opentraum
     environment: production
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mariadb
+  labels:
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: database
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka
+  labels:
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: messaging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: cache

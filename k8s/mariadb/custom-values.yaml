@@ -1,0 +1,155 @@
+# OpenTraum MariaDB Helm Chart values.yaml (Debezium CDC 지원)
+global:
+  storageClass: "ebs-sc"
+  security:
+    allowInsecureImages: true
+
+image:
+  registry: docker.io
+  repository: bitnamilegacy/mariadb
+  tag: "11.4.6-debian-12-r0"
+  pullPolicy: IfNotPresent
+
+## MariaDB 인증 설정
+auth:
+  rootPassword: "opentraum123!"
+  database: "opentraum_auth"
+  username: "opentraum"
+  password: "opentraum123!"
+
+## Primary 인스턴스
+primary:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  persistence:
+    enabled: true
+    storageClass: "ebs-sc"
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+
+  service:
+    type: ClusterIP
+    ports:
+      mysql: 3306
+
+  # Debezium CDC 필수 설정 (binlog)
+  configuration: |
+    [mysqld]
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    basedir=/opt/bitnami/mariadb
+    plugin_dir=/opt/bitnami/mariadb/plugin
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    tmpdir=/opt/bitnami/mariadb/tmp
+    max_allowed_packet=16M
+    bind-address=*
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+    log-error=/opt/bitnami/mariadb/logs/mysqld.log
+    character-set-server=UTF8
+    collation-server=utf8_general_ci
+    slow_query_log=0
+    long_query_time=10.0
+
+    # === Debezium CDC binlog 설정 ===
+    log-bin=mysql-bin
+    binlog-format=ROW
+    binlog-row-image=FULL
+    server-id=1
+    expire-logs-days=7
+    max-binlog-size=100M
+    binlog-cache-size=32K
+    transaction-isolation=READ-COMMITTED
+    sync-binlog=1
+
+    [client]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    default-character-set=UTF8
+    plugin_dir=/opt/bitnami/mariadb/plugin
+
+    [manager]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+
+secondary:
+  replicaCount: 0
+
+architecture: standalone
+
+## 메트릭 (Prometheus)
+metrics:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/mysqld-exporter
+    tag: "0.15.1-debian-12-r28"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  serviceMonitor:
+    enabled: false
+
+## 볼륨 권한
+volumePermissions:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/os-shell
+    tag: "12-debian-12-r43"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+## 초기화 스크립트 — 5개 DB 생성 + CDC 사용자 권한
+initdbScripts:
+  init_databases.sql: |
+    -- 서비스별 데이터베이스 생성
+    CREATE DATABASE IF NOT EXISTS opentraum_auth;
+    CREATE DATABASE IF NOT EXISTS opentraum_user;
+    CREATE DATABASE IF NOT EXISTS opentraum_event;
+    CREATE DATABASE IF NOT EXISTS opentraum_reservation;
+    CREATE DATABASE IF NOT EXISTS opentraum_payment;
+
+    -- opentraum 사용자에 전체 권한
+    GRANT ALL PRIVILEGES ON opentraum_auth.* TO 'opentraum'@'%';
+    GRANT ALL PRIVILEGES ON opentraum_user.* TO 'opentraum'@'%';
+    GRANT ALL PRIVILEGES ON opentraum_event.* TO 'opentraum'@'%';
+    GRANT ALL PRIVILEGES ON opentraum_reservation.* TO 'opentraum'@'%';
+    GRANT ALL PRIVILEGES ON opentraum_payment.* TO 'opentraum'@'%';
+
+    -- Debezium CDC 권한
+    GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT
+    ON *.* TO 'opentraum'@'%';
+
+    FLUSH PRIVILEGES;
+
+networkPolicy:
+  enabled: false
+
+podSecurityContext:
+  enabled: true
+  fsGroup: 1001
+
+containerSecurityContext:
+  enabled: true
+  runAsUser: 1001
+  runAsNonRoot: true
