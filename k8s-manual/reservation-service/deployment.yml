@@ -1,0 +1,135 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reservation-service
+  namespace: opentraum
+  labels:
+    app: reservation-service
+    app.kubernetes.io/name: reservation-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: reservation
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: reservation-service
+  template:
+    metadata:
+      labels:
+        app: reservation-service
+        app.kubernetes.io/name: reservation-service
+        app.kubernetes.io/part-of: opentraum
+        app.kubernetes.io/component: reservation
+    spec:
+      # reservation-service application.yml: lifecycle.timeout-per-shutdown-phase=30s → 버퍼 포함 40s
+      terminationGracePeriodSeconds: 40
+      imagePullSecrets:
+        - name: harbor-secret
+      priorityClassName: opentraum-high
+      # kubectl-sidecar / serviceAccountName: 소스에 호출 코드 0건 확인 → 제거 (H1)
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [reservation-service, payment-service, event-service]
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [reservation-service]
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: opentraum
+      initContainers:
+        - name: wait-for-payment
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - >
+              echo Waiting for payment-service...;
+              until wget -qO- http://payment-service:8085/actuator/health 2>/dev/null | grep -q UP;
+              do echo payment not ready; sleep 3; done;
+              echo payment-service is ready!
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 10m
+              memory: 32Mi
+      containers:
+        - name: reservation-service
+          image: amdp-registry.skala-ai.com/skala26a-cloud/team8-opentraum-reservation:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8084
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: opentraum-config
+          env:
+            - name: SPRING_R2DBC_URL
+              value: "r2dbc:mysql://reservation-db.kafka:3306/reservation"
+            - name: SPRING_R2DBC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: reservation-db-secret
+                  key: mariadb-user
+            - name: SPRING_R2DBC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: reservation-db-secret
+                  key: mariadb-password
+            # KAFKA_BOOTSTRAP_SERVERS 은 opentraum-config ConfigMap 에 이미 존재 — 중복 env 제거
+            - name: OTLP_TRACING_ENDPOINT
+              value: "http://alloy-otlp.monitoring:4318/v1/traces"
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+            - name: SPRING_MAIN_LAZY_INITIALIZATION
+              value: "false"  # Kafka listener 는 eager init 필수 (트러블슈팅 #29)
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          # Probe 제거: 이유는 event-service deployment.yml 주석 참고.
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reservation-service
+  namespace: opentraum
+  labels:
+    app: reservation-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: reservation
+spec:
+  type: ClusterIP
+  selector:
+    app: reservation-service
+  ports:
+    - name: http
+      port: 8084
+      targetPort: 8084
+      protocol: TCP

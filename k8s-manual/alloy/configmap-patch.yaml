@@ -1,0 +1,91 @@
+---
+# Alloy ConfigMap (전체 덮어쓰기)
+#
+# 기존 Helm chart가 생성한 alloy ConfigMap을 완전히 대체합니다.
+# - 기존 Kubernetes Pod 로그 수집(Loki push) 블록은 그대로 유지
+# - 신규 OTLP trace receiver(4317 gRPC / 4318 HTTP) 추가
+# - 신규 otelcol.exporter.otlphttp 로 Tempo(monitoring/tempo:4318)로 export
+#
+# 주의: 이 파일 apply 후 alloy DaemonSet/Deployment를 rollout restart 해야
+#       새 config가 반영됩니다. Service 포트(4317/4318)도 `service-patch.yaml`로
+#       별도 노출해야 외부에서 접근 가능합니다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/part-of: monitoring
+data:
+  config.alloy: |
+    // ------------------------------------------------------------------
+    // 기존: Kubernetes Pod log 수집 → Loki push
+    // ------------------------------------------------------------------
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    discovery.relabel "pods" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+        target_label  = "app"
+      }
+    }
+
+    loki.source.kubernetes "pods" {
+      targets    = discovery.relabel.pods.output
+      forward_to = [loki.write.default.receiver]
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // 신규: OTLP trace receiver (App → Alloy)
+    //   애플리케이션(OpenTelemetry SDK)이 alloy-otlp.monitoring:4317(grpc) 또는
+    //   alloy-otlp.monitoring:4318(http)로 trace를 전송합니다.
+    // ------------------------------------------------------------------
+    otelcol.receiver.otlp "default" {
+      http {
+        endpoint = "0.0.0.0:4318"
+      }
+      grpc {
+        endpoint = "0.0.0.0:4317"
+      }
+
+      output {
+        traces = [otelcol.exporter.otlphttp.tempo.input]
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // 신규: Tempo exporter (Alloy → Tempo)
+    //   Tempo distributor OTLP HTTP 4318 로 전송.
+    //   클러스터 내부 통신이므로 TLS 비활성.
+    // ------------------------------------------------------------------
+    otelcol.exporter.otlphttp "tempo" {
+      client {
+        endpoint = "http://tempo.monitoring:4318"
+        tls {
+          insecure = true
+        }
+      }
+    }

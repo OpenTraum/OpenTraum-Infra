@@ -1,0 +1,62 @@
+---
+# Grafana Tempo monolithic config
+#
+# 단일 Pod에서 distributor / ingester / compactor / querier / query-frontend를
+# 모두 기동합니다. 개발 환경이므로 trace backend는 local PVC를 사용합니다 (S3 불필요).
+#
+# 외부 공개 포트:
+#   - 3200 : HTTP (Tempo query API, Grafana datasource용)
+#   - 9095 : gRPC (Tempo querier internal)
+#   - 4317 : OTLP gRPC receiver (Alloy → Tempo)
+#   - 4318 : OTLP HTTP receiver (Alloy → Tempo)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: tempo
+    app.kubernetes.io/part-of: monitoring
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            http:
+              endpoint: 0.0.0.0:4318
+            grpc:
+              endpoint: 0.0.0.0:4317
+
+    ingester:
+      trace_idle_period: 10s
+      max_block_bytes: 1_000_000
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        compaction_window: 1h
+        max_block_bytes: 100_000_000
+        block_retention: 48h
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+
+    query_frontend:
+      search:
+        duration_slo: 5s
+        throughput_bytes_slo: 1.073741824e+09
+      trace_by_id:
+        duration_slo: 5s
+
+    usage_report:
+      reporting_enabled: false

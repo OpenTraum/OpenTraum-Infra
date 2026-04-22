@@ -1,0 +1,129 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-service
+  namespace: opentraum
+  labels:
+    app: event-service
+    app.kubernetes.io/name: event-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: event
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: event-service
+  template:
+    metadata:
+      labels:
+        app: event-service
+        app.kubernetes.io/name: event-service
+        app.kubernetes.io/part-of: opentraum
+        app.kubernetes.io/component: event
+    spec:
+      # event-service application.yml: lifecycle.timeout-per-shutdown-phase=20s → 버퍼 포함 30s
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+        - name: harbor-secret
+      priorityClassName: opentraum-medium
+      affinity:
+        # 3대장(reservation/payment/event)끼리 같은 노드 선호 (inter-service latency 감소)
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [reservation-service, payment-service, event-service]
+                topologyKey: kubernetes.io/hostname
+        # 같은 서비스끼리는 분산
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [event-service]
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: opentraum
+      containers:
+        - name: event-service
+          image: amdp-registry.skala-ai.com/skala26a-cloud/team8-opentraum-event:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8083
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: opentraum-config
+          env:
+            - name: SPRING_R2DBC_URL
+              value: "r2dbc:mysql://event-db.kafka:3306/event"
+            - name: SPRING_R2DBC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: event-db-secret
+                  key: mariadb-user
+            - name: SPRING_R2DBC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: event-db-secret
+                  key: mariadb-password
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "my-kafka-cluster-kafka-bootstrap.kafka:9092"
+            - name: OTLP_TRACING_ENDPOINT
+              value: "http://alloy-otlp.monitoring:4318/v1/traces"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opentraum-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+            - name: SPRING_MAIN_LAZY_INITIALIZATION
+              value: "false"  # Kafka listener 는 eager init 필수 (트러블슈팅 #29)
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "768Mi"
+              cpu: "500m"
+          # Probe 제거: /actuator/health 가 Redis 컴포넌트 포함 → Redis 순단/기동 경합 시
+          # Pod 재시작이 발생하고, Redis-unrelated 한 reactive chain(예: markProcessed) 이
+          # health check 실패로 interrupt 되어 SAGA 상태 전이가 누락되는 문제 확인됨.
+          # 안전장치를 완전히 빼는 대신 Pod 생존/준비 여부는 Kafka listener 시작 여부로 간접 감시.
+          # 추후 /actuator/health/liveness + /readiness 로 분리 도입 예정.
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-service
+  namespace: opentraum
+  labels:
+    app: event-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: event
+spec:
+  type: ClusterIP
+  selector:
+    app: event-service
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083
+      protocol: TCP

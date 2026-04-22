@@ -1,0 +1,32 @@
+---
+# Alloy OTLP receiver용 보조 Service
+#
+# 기존 `alloy` Service는 Helm chart가 관리하므로 건드리지 않습니다.
+# OTLP 4317(gRPC) / 4318(HTTP) 포트를 노출할 별도 ClusterIP Service를 추가해
+# 애플리케이션이 alloy-otlp.monitoring:4317 / :4318로 trace를 보낼 수 있게 합니다.
+#
+# selector는 Helm chart가 Pod에 붙이는 기본 label을 사용합니다.
+# (alloy Helm chart: app.kubernetes.io/name=alloy, app.kubernetes.io/instance=alloy)
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy-otlp
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/part-of: monitoring
+    app.kubernetes.io/component: otlp-receiver
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: alloy
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
