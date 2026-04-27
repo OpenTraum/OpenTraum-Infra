@@ -1,0 +1,88 @@
+# Loki values.yaml
+#
+# Helm release: loki (chart 6.55.0, app 3.6.7)
+# 설치 ns: monitoring
+# Mode: SingleBinary (단일 Pod + filesystem storage)
+#
+# 주요 변경 (2026-04-22):
+# - singleBinary 에 topologySpreadConstraints 추가 (노드 분산 힌트)
+# - loki-gateway 는 Deployment 이므로 별도 섹션에서 설정
+# - PVC 10Gi 유지 (ebs-sc)
+# - AZ 제약: EBS 는 AZ-bound. 2a 와 2b 중 어느 쪽에 스케줄되든 PVC 동적 프로비저닝
+#
+# 적용:
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm repo update
+#   helm upgrade loki grafana/loki -n monitoring -f values-loki.yaml
+
+deploymentMode: SingleBinary
+
+# SingleBinary 만 replicas=1, read/write/backend 는 비활성
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+chunksCache:
+  enabled: false
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        index:
+          period: 24h
+          prefix: loki_index_
+        object_store: filesystem
+        schema: v13
+        store: tsdb
+  storage:
+    type: filesystem
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ebs-sc
+  # 노드 분산 힌트 (replicas=1 이라 분산 효과 제한적이지만, 재배포 시 특정 노드 고정 방지)
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: single-binary
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 50m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+gateway:
+  replicas: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: gateway
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 10m
+    limits:
+      memory: 128Mi
+      cpu: 100m
+
+# 기본 비활성 컴포넌트 (SingleBinary 모드)
+resultsCache:
+  enabled: false

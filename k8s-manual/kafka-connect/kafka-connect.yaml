@@ -1,0 +1,98 @@
+---
+# Debezium Kafka Connect (Strimzi KafkaConnect CR)
+#
+# Strimzi Cluster Operator가 이 CR을 감시해서 Connect 클러스터를 기동합니다.
+# build 섹션을 사용하면 Operator가 Debezium MariaDB Connector + Outbox EventRouter
+# SMT JAR를 다운로드해 Strimzi connect 베이스 이미지 위에 쌓아 새 이미지를 빌드합니다.
+#
+# output.image:
+#   빌드 산출물이 push 되는 레지스트리 경로. Harbor (amdp-registry.skala-ai.com)
+#   에 skala26a-cloud 프로젝트로 push 하도록 설정되어 있다. pushSecret 은
+#   kafka ns 의 harbor-registry-secret (dockerconfigjson) 을 사용.
+#   output.type: docker 로 고정 (imagestream 은 OpenShift 전용).
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: opentraum-debezium-connect
+  namespace: kafka
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+  labels:
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: cdc
+spec:
+  version: 4.1.0
+  replicas: 1
+  bootstrapServers: my-kafka-cluster-kafka-bootstrap.kafka:9092
+
+  config:
+    group.id: opentraum-connect-cluster
+    offset.storage.topic: opentraum-connect-offsets
+    config.storage.topic: opentraum-connect-configs
+    status.storage.topic: opentraum-connect-status
+    config.storage.replication.factor: 1
+    offset.storage.replication.factor: 1
+    status.storage.replication.factor: 1
+    config.providers: secrets
+    config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
+    internal.topic.replication.factor: 1
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: false
+    value.converter.schemas.enable: false
+
+  template:
+    pod:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values: ["database-cdc"]
+                topologyKey: kubernetes.io/hostname
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  jvmOptions:
+    "-Xms": "256m"
+    "-Xmx": "768m"
+
+  logging:
+    type: inline
+    loggers:
+      log4j.rootLogger: "INFO"
+      log4j.logger.io.debezium: "INFO"
+      log4j.logger.io.debezium.transforms.outbox: "INFO"
+
+  build:
+    # TODO(opentraum): Harbor/ECR 등 실제 레지스트리 주소로 교체 후 apply
+    output:
+      type: docker
+      image: amdp-registry.skala-ai.com/skala26a-cloud/team8-opentraum-debezium-connect:3.2.0
+      pushSecret: harbor-registry-secret
+    plugins:
+      - name: debezium-mariadb-connector
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-connector-mariadb/3.2.0.Final/debezium-connector-mariadb-3.2.0.Final-plugin.tar.gz
+      - name: debezium-scripting
+        artifacts:
+          - type: tgz
+            url: https://repo1.maven.org/maven2/io/debezium/debezium-scripting/3.2.0.Final/debezium-scripting-3.2.0.Final.tar.gz
+
+  readinessProbe:
+    initialDelaySeconds: 60
+    timeoutSeconds: 5
+  livenessProbe:
+    initialDelaySeconds: 60
+    timeoutSeconds: 5

@@ -1,0 +1,48 @@
+---
+# Debezium MariaDB Connector for event-service Outbox
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: event-outbox-connector
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: opentraum-debezium-connect
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: cdc
+spec:
+  class: io.debezium.connector.mariadb.MariaDbConnector
+  tasksMax: 1
+  config:
+    database.hostname: event-db.kafka
+    database.port: 3306
+    database.user: opentraum
+    database.password: "opentraum123!"
+    database.server.id: 184062
+    database.server.name: event
+
+    topic.prefix: opentraum.cdc.event
+
+    database.include.list: event
+    table.include.list: event.outbox_events
+
+    schema.history.internal.kafka.bootstrap.servers: my-kafka-cluster-kafka-bootstrap.kafka:9092
+    schema.history.internal.kafka.topic: schema-history.event
+
+    snapshot.mode: initial
+    include.schema.changes: "false"
+    tombstones.on.delete: "false"
+
+    transforms: outbox
+    transforms.outbox.type: io.debezium.transforms.outbox.EventRouter
+    transforms.outbox.route.by.field: aggregate_type
+    transforms.outbox.route.topic.replacement: opentraum.${routedByValue}
+    transforms.outbox.route.tombstone.on.empty.payload: "false"
+    transforms.outbox.table.fields.additional.placement: "event_id:header:event_id,event_type:header:event_type,saga_id:header:saga_id,trace_id:header:trace_id"
+    transforms.outbox.table.field.event.key: aggregate_id
+    transforms.outbox.table.field.event.payload: payload
+    transforms.outbox.table.expand.json.payload: "true"
+
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"

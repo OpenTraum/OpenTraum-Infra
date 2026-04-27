@@ -1,0 +1,115 @@
+---
+# === 비즈니스 토픽 (Outbox EventRouter가 발행) ===
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: opentraum.reservation
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: messaging
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: opentraum.payment
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: messaging
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: opentraum.event
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: messaging
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    cleanup.policy: delete
+---
+# === DLQ ===
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: opentraum.dlq
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: messaging
+spec:
+  partitions: 6
+  replicas: 1
+  config:
+    retention.ms: 1209600000
+    cleanup.policy: delete
+---
+# === Debezium schema history topics (compact 금지, 영구 보관) ===
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: schema-history.reservation
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: cdc
+spec:
+  partitions: 1
+  replicas: 1
+  config:
+    cleanup.policy: delete
+    retention.ms: -1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: schema-history.payment
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: cdc
+spec:
+  partitions: 1
+  replicas: 1
+  config:
+    cleanup.policy: delete
+    retention.ms: -1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: schema-history.event
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-kafka-cluster
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: cdc
+spec:
+  partitions: 1
+  replicas: 1
+  config:
+    cleanup.policy: delete
+    retention.ms: -1

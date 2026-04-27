@@ -1,0 +1,201 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-db-config
+  namespace: kafka
+  labels:
+    app: payment-db
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: database
+data:
+  my.cnf: |
+    [mysqld]
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    port=3306
+    bind-address=*
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+    max_allowed_packet=16M
+
+    # === Debezium CDC binlog ===
+    log_bin=ON
+    binlog_format=ROW
+    binlog_row_image=FULL
+    server_id=184061
+    expire_logs_days=3
+    max_binlog_size=100M
+    sync_binlog=1
+    transaction-isolation=READ-COMMITTED
+
+    [client]
+    port=3306
+    default-character-set=utf8mb4
+  init_cdc.sql: |
+    CREATE DATABASE IF NOT EXISTS payment CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+    GRANT ALL PRIVILEGES ON payment.* TO 'opentraum'@'%';
+
+    GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT
+      ON *.* TO 'opentraum'@'%';
+
+    FLUSH PRIVILEGES;
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: payment-db-secret
+  namespace: kafka
+  labels:
+    app: payment-db
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: database
+type: Opaque
+stringData:
+  mariadb-root-password: "opentraum123!"
+  mariadb-password: "opentraum123!"
+  mariadb-user: "opentraum"
+  mariadb-database: "payment"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-db
+  namespace: kafka
+  labels:
+    app: payment-db
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: payment-db
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: payment-db
+  namespace: kafka
+  labels:
+    app: payment-db
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: database
+spec:
+  serviceName: payment-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-db
+  template:
+    metadata:
+      labels:
+        app: payment-db
+        app.kubernetes.io/part-of: opentraum
+        app.kubernetes.io/component: database-cdc
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values: ["database-cdc"]
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: mariadb
+          image: docker.io/bitnamilegacy/mariadb:11.4.6-debian-12-r0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1001
+            runAsNonRoot: true
+          ports:
+            - containerPort: 3306
+              name: mysql
+              protocol: TCP
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-db-secret
+                  key: mariadb-root-password
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: payment-db-secret
+                  key: mariadb-user
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-db-secret
+                  key: mariadb-password
+            - name: MARIADB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: payment-db-secret
+                  key: mariadb-database
+            - name: MARIADB_EXTRA_FLAGS
+              value: "--server-id=184061"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/mariadb
+            - name: config
+              mountPath: /opt/bitnami/mariadb/conf/my_custom.cnf
+              subPath: my.cnf
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d/init_cdc.sql
+              subPath: init_cdc.sql
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - mariadb-admin --user=root --password="$MARIADB_ROOT_PASSWORD" ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: payment-db-config
+            items:
+              - key: my.cnf
+                path: my.cnf
+        - name: initdb
+          configMap:
+            name: payment-db-config
+            items:
+              - key: init_cdc.sql
+                path: init_cdc.sql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ebs-sc
+        resources:
+          requests:
+            storage: 5Gi
