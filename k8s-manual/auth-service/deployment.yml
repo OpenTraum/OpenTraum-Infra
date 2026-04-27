@@ -38,7 +38,7 @@ spec:
             - configMapRef:
                 name: opentraum-config
           env:
-            # develop 브랜치 기준 MariaDB 사용 (build.gradle: r2dbc-mysql 1.1.0)
+            # MariaDB 사용 (build.gradle: r2dbc-mysql 1.1.0)
             # application.yml 이 r2dbc:mysql URL 템플릿 + DB_* env 를 읽음 → 둘 다 설정.
             - name: DB_HOST
               value: "opentraum-mariadb.mariadb"
