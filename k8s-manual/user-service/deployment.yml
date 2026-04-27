@@ -1,0 +1,114 @@
+---
+# user-service: r2dbc-postgresql 만 의존성에 있어 PostgreSQL 사용.
+# kafka ns 의 postgres-1-postgresql 공용.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: opentraum
+  labels:
+    app: user-service
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: user
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+        app.kubernetes.io/name: user-service
+        app.kubernetes.io/part-of: opentraum
+        app.kubernetes.io/component: user
+    spec:
+      terminationGracePeriodSeconds: 40
+      imagePullSecrets:
+        - name: harbor-secret
+      priorityClassName: opentraum-medium
+      containers:
+        - name: user-service
+          image: amdp-registry.skala-ai.com/skala26a-cloud/team8-opentraum-user:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8082
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: opentraum-config
+          env:
+            # develop 브랜치 기준 MariaDB 사용 (build.gradle: r2dbc-mysql 1.1.0)
+            - name: DB_HOST
+              value: "opentraum-mariadb.mariadb"
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              value: "opentraum_user"
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: user-db-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: user-db-secret
+                  key: password
+            - name: SPRING_R2DBC_URL
+              value: "r2dbc:mysql://opentraum-mariadb.mariadb:3306/opentraum_user"
+            - name: JAVA_OPTS
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+            - name: SPRING_MAIN_LAZY_INITIALIZATION
+              value: "true"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "500m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 3
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: opentraum
+  labels:
+    app: user-service
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: user
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+      protocol: TCP

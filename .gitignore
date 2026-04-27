@@ -64,3 +64,10 @@ logs/
 # =========================
 tmp/
 temp/
+
+# =========================
+# Chaos toolkit local runs
+# =========================
+chaos/journal.json
+chaos/*.log
+chaos/chaostoolkit.log

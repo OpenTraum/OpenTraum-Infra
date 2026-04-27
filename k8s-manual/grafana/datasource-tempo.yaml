@@ -1,0 +1,36 @@
+---
+# Grafana Tempo datasource
+#
+# kube-prometheus-stack의 Grafana는 sidecar로 label `grafana_datasource: "1"`가
+# 붙은 ConfigMap을 감시해 datasource를 자동 등록합니다. 별도 재기동 없이 sidecar가
+# 변경을 감지해 Grafana API로 주입하지만, 캐시 반영이 안 되면 Grafana Pod를
+# rollout restart 해 주세요.
+#
+# tracesToLogsV2: Tempo trace에서 Loki 로그로 점프할 때 쓰는 연관 설정.
+#   service.name(OpenTelemetry resource attr) → Loki label service_name 매핑.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource-tempo
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+    app.kubernetes.io/part-of: monitoring
+data:
+  tempo-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo.monitoring:3200
+        isDefault: false
+        editable: true
+        uid: tempo
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            filterByTraceID: true
+            tags:
+              - key: service.name
+                value: service_name

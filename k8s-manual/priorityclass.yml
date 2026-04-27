@@ -1,0 +1,27 @@
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: opentraum-high
+description: "OpenTraum 핵심 서비스 (gateway, payment, reservation)"
+value: 1000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: opentraum-medium
+description: "OpenTraum 일반 서비스 (auth, user, event)"
+value: 500
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: opentraum-low
+description: "OpenTraum 프론트엔드 (web)"
+value: 100
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
