@@ -19,6 +19,24 @@ auth:
 
 ## Primary 인스턴스
 primary:
+  # 노드 분산용 공통 라벨 (loki / prometheus 와 cross anti-affinity)
+  podLabels:
+    opentraum.io/heavy: "true"
+
+  # 무거운 인프라 pod 끼리 서로 다른 노드로 분산.
+  # bitnami chart 기본 affinity 는 같은 release 내부 끼리만 회피하므로
+  # 단일 replica 환경에서는 사실상 무효 → cross anti-affinity 로 정정.
+  # preferred = 노드 부족 시 강제 안 함 (Pending 회피).
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                opentraum.io/heavy: "true"
+            topologyKey: kubernetes.io/hostname
+
   resources:
     limits:
       cpu: 500m

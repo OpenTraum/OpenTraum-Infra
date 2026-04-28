@@ -50,7 +50,10 @@ singleBinary:
     enabled: true
     size: 10Gi
     storageClass: ebs-sc
-  # 노드 분산 힌트 (replicas=1 이라 분산 효과 제한적이지만, 재배포 시 특정 노드 고정 방지)
+  # 노드 분산용 공통 라벨 (mariadb / prometheus 와 cross anti-affinity)
+  podLabels:
+    opentraum.io/heavy: "true"
+  # 노드 분산 힌트 (replicas=1 이라 자기 자신끼리는 무효, cross anti-affinity 와 함께 사용)
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: kubernetes.io/hostname
@@ -58,6 +61,17 @@ singleBinary:
       labelSelector:
         matchLabels:
           app.kubernetes.io/component: single-binary
+  # 무거운 인프라 pod 끼리 서로 다른 노드로 분산.
+  # loki chart 기본 affinity 는 자기 release 내부만 회피하므로 단일 replica 환경에선 사실상 무효 → cross 정정.
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                opentraum.io/heavy: "true"
+            topologyKey: kubernetes.io/hostname
   resources:
     requests:
       memory: 256Mi

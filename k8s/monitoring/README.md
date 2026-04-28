@@ -42,6 +42,13 @@ helm upgrade loki grafana/loki \
 - 6노드 분산 힌트. `ScheduleAnyway` 라 강제는 아니지만 스케줄러가 우선순위로 고려
 - **이유**: 이전 세션에서 `ip-10-0-156-206` 노드에 monitoring Pod 8개 집중 → memory 90% 도달 관찰됨. 특정 노드 OOM 방지
 
+### cross podAntiAffinity (2026-04-28 추가)
+
+- prometheus / loki / mariadb 에 공통 라벨 `opentraum.io/heavy: "true"` + `preferredDuringScheduling` podAntiAffinity 추가
+- **이유**: bitnami/loki/kube-prometheus-stack chart 기본 affinity 는 같은 release 내부 끼리만 회피. 단일 replica StatefulSet 에서는 사실상 무효 → 서로 다른 무거운 pod 간 cross anti-affinity 가 필요
+- **효과**: 클러스터 셧다운 → 재기동 시 prometheus / loki / mariadb 가 자동으로 다른 노드에 분산 (이전엔 한 노드에 묶여 메모리 95% 까지 도달)
+- **`preferred`** 라 노드 부족 시 강제 분산 안 함 (Pending 위험 회피)
+
 ### 리소스 제한
 
 - 이전에는 Helm chart 기본값 (높은 limit) → 6노드 중 2~3노드에서 limit overcommit 100%+ 발생
