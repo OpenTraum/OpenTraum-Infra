@@ -10,8 +10,13 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - skala3-cloud1-team8.cloud.skala-ai.com
+      secretName: opentraum-tls
   rules:
     - host: skala3-cloud1-team8.cloud.skala-ai.com
       http:
