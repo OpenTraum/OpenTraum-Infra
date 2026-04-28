@@ -31,6 +31,8 @@ prometheus:
     podMetadata:
       labels:
         opentraum.io/heavy: "true"
+    # chart 기본 self-only podAntiAffinity 비활성화 (단일 replica 라 무효 + 아래 cross affinity 와 키 충돌 방지)
+    podAntiAffinity: ""
     # 노드 분산
     topologySpreadConstraints:
       - maxSkew: 1
@@ -39,8 +41,7 @@ prometheus:
         labelSelector:
           matchLabels:
             app.kubernetes.io/name: prometheus
-    # 무거운 인프라 pod 끼리 서로 다른 노드로 분산.
-    # kube-prometheus-stack 기본 affinity 는 자기 release 내부만 회피하므로 단일 replica 환경에선 사실상 무효 → cross 정정.
+    # 무거운 인프라 pod 끼리 서로 다른 노드로 분산 (mariadb / loki 와 cross).
     affinity:
       podAntiAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
