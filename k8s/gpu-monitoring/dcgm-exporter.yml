@@ -1,0 +1,155 @@
+# NVIDIA DCGM Exporter — GPU 메트릭 수집 DaemonSet
+#
+# 동작:
+#   - g5.xlarge GPU 노드(nodegroup-type=gpu)에만 스케줄
+#   - GPU 메트릭(/metrics, port 9400)을 Prometheus가 scrape
+#   - 대표 메트릭: DCGM_FI_DEV_GPU_UTIL, _MEM_COPY_UTIL, _FB_USED, _MEMORY_TEMP, _POWER_USAGE 등
+#
+# 필수 사전 조건:
+#   - nvidia-device-plugin DaemonSet 실행 중 (이미 활성)
+#   - GPU 노드 taint: nodegroup-type=gpu:NoSchedule (toleration 적용)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-monitoring
+  labels:
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: gpu-monitoring
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-monitoring
+  labels:
+    app: dcgm-exporter
+    app.kubernetes.io/name: dcgm-exporter
+    app.kubernetes.io/part-of: opentraum
+spec:
+  selector:
+    matchLabels:
+      app: dcgm-exporter
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: dcgm-exporter
+        app.kubernetes.io/name: dcgm-exporter
+    spec:
+      # GPU 노드에만 배치
+      nodeSelector:
+        nodegroup-type: gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: nodegroup-type
+          operator: Equal
+          value: gpu
+          effect: NoSchedule
+      hostPID: true
+      hostNetwork: false
+      containers:
+        - name: dcgm-exporter
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+          ports:
+            - name: metrics
+              containerPort: 9400
+              protocol: TCP
+          env:
+            - name: DCGM_EXPORTER_LISTEN
+              value: ":9400"
+            - name: DCGM_EXPORTER_KUBERNETES
+              value: "true"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: false
+            runAsNonRoot: false
+            runAsUser: 0
+            capabilities:
+              add: ["SYS_ADMIN"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: pod-gpu-resources
+              readOnly: true
+              mountPath: /var/lib/kubelet/pod-resources
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9400
+            initialDelaySeconds: 45
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9400
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: pod-gpu-resources
+          hostPath:
+            path: /var/lib/kubelet/pod-resources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-monitoring
+  labels:
+    app: dcgm-exporter
+    app.kubernetes.io/name: dcgm-exporter
+    # Prometheus auto-discovery 필요시 사용
+    release: kube-prometheus-stack
+spec:
+  type: ClusterIP
+  selector:
+    app: dcgm-exporter
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: 9400
+      protocol: TCP
+---
+# kube-prometheus-stack의 Prometheus가 이 ServiceMonitor를 자동 감시
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-monitoring
+  labels:
+    app: dcgm-exporter
+    app.kubernetes.io/name: dcgm-exporter
+    # kube-prometheus-stack 의 default match selector
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: dcgm-exporter
+  namespaceSelector:
+    matchNames:
+      - gpu-monitoring
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      relabelings:
+        # Pod의 노드 이름을 라벨로 추가 → Grafana 에서 노드별 분리 가능
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: kubernetes_node
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod

@@ -1,0 +1,210 @@
+# Grafana 대시보드 (sidecar 자동 등록).
+# kube-prometheus-stack 의 grafana sidecar 가
+# label `grafana_dashboard: "1"` 인 ConfigMap 을 watch → Grafana 자동 등록.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-gpu
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  opentraum-gpu.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "graphTooltip": 1,
+      "panels": [
+        {
+          "type": "row",
+          "title": "GPU Overview",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "collapsed": false
+        },
+        {
+          "type": "stat",
+          "title": "GPU Utilization",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+          "targets": [
+            { "expr": "avg(DCGM_FI_DEV_GPU_UTIL)", "legendFormat": "avg %", "refId": "A" }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "percent", "min": 0, "max": 100,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }
+              ]}
+            }
+          },
+          "options": { "colorMode": "background", "graphMode": "area", "textMode": "value_and_name", "reduceOptions": { "calcs": ["lastNotNull"] } }
+        },
+        {
+          "type": "stat",
+          "title": "GPU Memory Used",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+          "targets": [
+            { "expr": "avg(DCGM_FI_DEV_FB_USED) / 1024", "legendFormat": "GiB", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "decgbytes", "decimals": 2 } },
+          "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+        },
+        {
+          "type": "stat",
+          "title": "GPU Temperature",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+          "targets": [
+            { "expr": "max(DCGM_FI_DEV_GPU_TEMP)", "legendFormat": "°C", "refId": "A" }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "celsius",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null }, { "color": "yellow", "value": 75 }, { "color": "red", "value": 85 }
+              ]}
+            }
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+        },
+        {
+          "type": "stat",
+          "title": "Power Draw",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+          "targets": [
+            { "expr": "sum(DCGM_FI_DEV_POWER_USAGE)", "legendFormat": "W", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "watt", "decimals": 1 } },
+          "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+        },
+        {
+          "type": "row",
+          "title": "Time Series",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+          "collapsed": false
+        },
+        {
+          "type": "timeseries",
+          "title": "GPU Utilization (%)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+          "targets": [
+            { "expr": "DCGM_FI_DEV_GPU_UTIL", "legendFormat": "{{kubernetes_node}} GPU{{gpu}}", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 12, "gradientMode": "opacity" } } }
+        },
+        {
+          "type": "timeseries",
+          "title": "GPU Memory Used (MiB)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+          "targets": [
+            { "expr": "DCGM_FI_DEV_FB_USED", "legendFormat": "{{kubernetes_node}} used", "refId": "A" },
+            { "expr": "DCGM_FI_DEV_FB_FREE", "legendFormat": "{{kubernetes_node}} free", "refId": "B" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "mbytes",
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 18, "stacking": { "mode": "normal" } } } }
+        },
+        {
+          "type": "timeseries",
+          "title": "Temperature (°C)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 0, "y": 15 },
+          "targets": [
+            { "expr": "DCGM_FI_DEV_GPU_TEMP", "legendFormat": "GPU {{kubernetes_node}}", "refId": "A" },
+            { "expr": "DCGM_FI_DEV_MEMORY_TEMP", "legendFormat": "Mem {{kubernetes_node}}", "refId": "B" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "celsius",
+            "custom": { "drawStyle": "line", "lineWidth": 2 } } }
+        },
+        {
+          "type": "timeseries",
+          "title": "Power Usage (W)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 8, "y": 15 },
+          "targets": [
+            { "expr": "DCGM_FI_DEV_POWER_USAGE", "legendFormat": "{{kubernetes_node}}", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "watt",
+            "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 12 } } }
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory Bandwidth Utilization (%)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 7, "w": 8, "x": 16, "y": 15 },
+          "targets": [
+            { "expr": "DCGM_FI_DEV_MEM_COPY_UTIL", "legendFormat": "{{kubernetes_node}}", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+            "custom": { "drawStyle": "line", "lineWidth": 2 } } }
+        },
+        {
+          "type": "row",
+          "title": "Operational",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+          "collapsed": false
+        },
+        {
+          "type": "stat",
+          "title": "GPU Count (allocatable)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 0, "y": 23 },
+          "targets": [
+            { "expr": "count(DCGM_FI_DEV_GPU_UTIL)", "legendFormat": "GPUs", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short" } },
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+        },
+        {
+          "type": "stat",
+          "title": "SM Active (avg)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 6, "y": 23 },
+          "targets": [
+            { "expr": "avg(DCGM_FI_PROF_SM_ACTIVE) * 100", "legendFormat": "%", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+        },
+        {
+          "type": "stat",
+          "title": "PCIe TX/RX (KiB/s)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 12, "y": 23 },
+          "targets": [
+            { "expr": "sum(DCGM_FI_PROF_PCIE_TX_BYTES) / 1024", "legendFormat": "TX KiB/s", "refId": "A" },
+            { "expr": "sum(DCGM_FI_PROF_PCIE_RX_BYTES) / 1024", "legendFormat": "RX KiB/s", "refId": "B" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "KBs" } }
+        },
+        {
+          "type": "stat",
+          "title": "ECC Errors",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 5, "w": 6, "x": 18, "y": 23 },
+          "targets": [
+            { "expr": "sum(DCGM_FI_DEV_ECC_SBE_AGG_TOTAL) + sum(DCGM_FI_DEV_ECC_DBE_AGG_TOTAL)", "legendFormat": "errors", "refId": "A" }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null }, { "color": "red", "value": 1 }
+              ]}
+            }
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "tags": ["opentraum", "gpu", "nvidia"],
+      "templating": { "list": [] },
+      "time": { "from": "now-30m", "to": "now" },
+      "timepicker": {},
+      "timezone": "",
+      "title": "OpenTraum · GPU (NVIDIA DCGM)",
+      "uid": "opentraum-gpu",
+      "version": 1,
+      "weekStart": ""
+    }
