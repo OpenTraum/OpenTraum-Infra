@@ -43,6 +43,7 @@ data:
   EVENT_SERVICE_URL: "http://event-service.opentraum.svc.cluster.local:8083"
   RESERVATION_SERVICE_URL: "http://reservation-service.opentraum.svc.cluster.local:8084"
   PAYMENT_SERVICE_URL: "http://payment-service.opentraum.svc.cluster.local:8085"
+  MONITORING_SERVICE_URL: "http://monitoring-service.opentraum.svc.cluster.local:8086"
 
   # ---------------------------------------------------------------------------
   # Gateway Route Override (prod profile 보완)
@@ -62,6 +63,9 @@ data:
   SPRING_CLOUD_GATEWAY_ROUTES_4_ID: "payment-service"
   SPRING_CLOUD_GATEWAY_ROUTES_4_URI: "http://payment-service:8085"
   SPRING_CLOUD_GATEWAY_ROUTES_4_PREDICATES_0: "Path=/api/v1/payment/**"
+  SPRING_CLOUD_GATEWAY_ROUTES_5_ID: "monitoring-service"
+  SPRING_CLOUD_GATEWAY_ROUTES_5_URI: "http://monitoring-service:8086"
+  SPRING_CLOUD_GATEWAY_ROUTES_5_PREDICATES_0: "Path=/api/v1/monitoring/**"
 
   # ---------------------------------------------------------------------------
   # Spring Common
