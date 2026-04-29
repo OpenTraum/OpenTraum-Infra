@@ -37,7 +37,7 @@ spec:
     transforms.outbox.route.by.field: aggregate_type
     transforms.outbox.route.topic.replacement: opentraum.${routedByValue}
     transforms.outbox.route.tombstone.on.empty.payload: "false"
-    transforms.outbox.table.fields.additional.placement: "event_id:header:event_id,event_type:header:event_type,saga_id:header:saga_id,trace_id:header:trace_id"
+    transforms.outbox.table.fields.additional.placement: "event_id:header:event_id,event_type:header:event_type,saga_id:header:saga_id"
     transforms.outbox.table.field.event.key: aggregate_id
     transforms.outbox.table.field.event.payload: payload
     transforms.outbox.table.expand.json.payload: "true"

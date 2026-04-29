@@ -36,7 +36,7 @@ OpenTraum 의 EKS 인프라(클러스터, 네트워크, 워크로드, 데이터,
 | [02 NETWORK](OPENTRAUM-INFRA-02-NETWORK.md) | 네트워크 / 진입 경로 | Route 53 부터 Pod 까지 한 요청의 여정을 따라가며 NLB, Ingress NGINX, cert-manager, CoreDNS 를 다룹니다. |
 | [03 WORKLOAD](OPENTRAUM-INFRA-03-WORKLOAD.md) | 네임스페이스 / 앱 워크로드 카탈로그 | opentraum 네임스페이스의 6 백엔드와 web 을 매니페스트 라인 단위로 분석합니다. |
 | [04 DATA](OPENTRAUM-INFRA-04-DATA.md) | 데이터 계층 | 통합 MariaDB, Strimzi Kafka 4.1.0, Debezium CDC, 3개 CDC MariaDB, Redis 와 SAGA 흐름을 다룹니다. |
-| [05 OBSERVABILITY](OPENTRAUM-INFRA-05-OBSERVABILITY.md) | 관측 스택 | Prometheus, Loki, Tempo, Alloy, Grafana 가 만드는 metrics / logs / traces 3-pillar 흐름을 정리합니다. |
+| [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md) | 모니터링 스택 | Prometheus, Loki, Alloy, Grafana 가 만드는 metrics 와 logs 두 축의 흐름을 정리합니다. |
 | [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) | 운영 정책 / 안정성 / 카오스 | PriorityClass, PDB, Probe, Affinity, KEDA, Chaos Toolkit 검증 결과까지 다룹니다. |
 | [07 CICD](OPENTRAUM-INFRA-07-CICD.md) | CI/CD 파이프라인 | GitHub repo 에 push 한 한 번의 커밋이 EKS 의 Pod 가 되기까지의 모든 단계를 정리합니다. |
 
@@ -61,7 +61,7 @@ OpenTraum 의 EKS 인프라(클러스터, 네트워크, 워크로드, 데이터,
 | CDC | Debezium MariaDB 3.2.0 + Outbox EventRouter SMT |
 | GitOps | ArgoCD v3.3.6 (Application 7개, 모두 Synced/Healthy) |
 | 이미지 레지스트리 | Harbor (<HARBOR_REGISTRY> / project <HARBOR_PROJECT>) |
-| 관측 | Prometheus v3.11.3, Grafana 13.0.1, Loki 3.6.7, Tempo 2.6.0, Alloy v1.15.0 |
+| 모니터링 | Prometheus v3.11.3, Grafana 13.0.1, Loki 3.6.7, Alloy v1.15.0 |
 
 ## 3.5 정량 성과 한눈에 보기
 
@@ -149,7 +149,6 @@ flowchart LR
         cdcdb[(reservation-db<br/>payment-db<br/>event-db<br/>kafka ns)]
         prom[Prometheus<br/>monitoring ns]
         loki[Loki]
-        tempo[Tempo]
         alloy[Alloy DaemonSet]
         grafana[Grafana]
         argocd[ArgoCD<br/>argocd ns]
@@ -182,12 +181,10 @@ flowchart LR
     kafka --> pay
     kafka --> event
     alloy -->|stdout logs| loki
-    alloy -->|OTLP traces| tempo
     prom -->|scrape| gw
     prom -->|scrape| auth
     grafana -.->|datasource| prom
     grafana -.->|datasource| loki
-    grafana -.->|datasource| tempo
 
     gh -->|push main| gha
     gha -->|build push<br/>multi-arch| harbor
@@ -216,7 +213,6 @@ flowchart LR
     style cdcdb fill:#FFC9C9,stroke:#B22222,color:#222
     style prom fill:#E1D4F7,stroke:#6A4FB6,color:#222
     style loki fill:#E1D4F7,stroke:#6A4FB6,color:#222
-    style tempo fill:#E1D4F7,stroke:#6A4FB6,color:#222
     style alloy fill:#E1D4F7,stroke:#6A4FB6,color:#222
     style grafana fill:#E1D4F7,stroke:#6A4FB6,color:#222
     style argocd fill:#FFD8B1,stroke:#C25A00,color:#222
@@ -241,7 +237,7 @@ flowchart LR
 | kube-public | (시스템) | 클러스터 공개 정보 |
 | kube-system | [01 CLUSTER](OPENTRAUM-INFRA-01-CLUSTER.md) | CoreDNS, kube-proxy, VPC CNI, EBS CSI, AWS LBC, metrics-server |
 | mariadb | [04 DATA](OPENTRAUM-INFRA-04-DATA.md) | 통합 MariaDB (auth/user) |
-| monitoring | [05 OBSERVABILITY](OPENTRAUM-INFRA-05-OBSERVABILITY.md) | Prometheus, Grafana, Loki, Tempo, Alloy, Alertmanager |
+| monitoring | [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md) | Prometheus, Grafana, Loki, Alloy, Alertmanager |
 | opentraum | [03 WORKLOAD](OPENTRAUM-INFRA-03-WORKLOAD.md) | gateway, web, 5 도메인 백엔드 |
 | redis | [04 DATA](OPENTRAUM-INFRA-04-DATA.md) | opentraum-redis (분산 락 / 세션 캐시) |
 
@@ -291,7 +287,7 @@ flowchart LR
 | 노드 NotReady / 메모리 압박 | [01 CLUSTER](OPENTRAUM-INFRA-01-CLUSTER.md), [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) Affinity 절 |
 | Kafka consumer 가 메시지를 못 받음 | [04 DATA](OPENTRAUM-INFRA-04-DATA.md) 트러블슈팅 |
 | Debezium connector 가 outbox 를 못 읽음 | [04 DATA](OPENTRAUM-INFRA-04-DATA.md) 트러블슈팅 |
-| Grafana 에 데이터가 안 보임 / OTLP trace 누락 | [05 OBSERVABILITY](OPENTRAUM-INFRA-05-OBSERVABILITY.md) 트러블슈팅 |
+| Grafana 에 데이터가 안 보임 | [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md) 트러블슈팅 |
 | 노드 drain 이 안 됨 | [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) PDB 절 |
 | ArgoCD OutOfSync / GitHub Actions 실패 | [07 CICD](OPENTRAUM-INFRA-07-CICD.md) 트러블슈팅 |
 | 카오스 실험이 deviated 로 끝남 | [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) 카오스 절 |
@@ -347,10 +343,8 @@ kubectl get pods -n monitoring -o wide
 - **Probe (startup / readiness / liveness)**: Pod 의 기동 / 준비 / 살아있음을 각각 검증하는 헬스체크.
 - **topologySpreadConstraints**: Pod 들이 노드 / AZ 등 도메인에 걸쳐 균등 분포되도록 하는 스케줄러 힌트.
 - **Affinity / AntiAffinity**: Pod 가 어떤 노드 / 어떤 다른 Pod 와 함께 또는 떨어져 배치되어야 하는지를 표현하는 규칙.
-- **OTLP (OpenTelemetry Protocol)**: 메트릭 / 로그 / 트레이스를 표준화된 형식으로 전송하는 프로토콜. gRPC 4317 / HTTP 4318.
-- **Tempo monolithic**: Tempo 를 단일 컴포넌트로 띄우는 배포 모드. 학습 환경에 적합합니다.
 - **Loki SingleBinary**: Loki 를 단일 바이너리로 띄우는 배포 모드. 본 환경은 filesystem + 10Gi PVC.
-- **Alloy**: Grafana 의 OpenTelemetry 호환 에이전트. 본 환경에서는 DaemonSet 으로 노드당 1 Pod.
+- **Alloy**: Grafana 의 로그 수집 에이전트. 본 환경에서는 DaemonSet 으로 노드당 1 Pod.
 - **Grafana datasource sidecar**: 라벨 `grafana_datasource: "1"` 가 붙은 ConfigMap 을 자동으로 Grafana 에 등록해 주는 사이드카 패턴.
 - **ArgoCD App-of-Apps**: 하나의 Application 이 다른 Application 들을 자식으로 가지는 GitOps 패턴.
 - **Harbor**: 사설 컨테이너 레지스트리. 본 환경은 SKALA 공용 레지스트리(`<HARBOR_REGISTRY>`) 를 사용합니다.

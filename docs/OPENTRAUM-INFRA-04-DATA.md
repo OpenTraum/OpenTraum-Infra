@@ -2,7 +2,7 @@
 
 > 작성일: 2026-04-28
 > 시리즈 인덱스: [00 INDEX](OPENTRAUM-INFRA-00-INDEX.md)
-> 이전: [03 WORKLOAD](OPENTRAUM-INFRA-03-WORKLOAD.md) · 다음: [05 OBSERVABILITY](OPENTRAUM-INFRA-05-OBSERVABILITY.md)
+> 이전: [03 WORKLOAD](OPENTRAUM-INFRA-03-WORKLOAD.md) · 다음: [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md)
 
 ## 목차
 - [1. 개요](#1-개요)
@@ -82,7 +82,6 @@ Outbox 패턴은 CDC 의 입력을 비즈니스가 통제하기 위한 장치입
 | `aggregate_type` | VARCHAR | 라우팅 키 (`reservation` / `payment` / `event`) |
 | `event_type` | VARCHAR | `SeatHeld`, `PaymentCompleted` 등 이벤트 종류 |
 | `saga_id` | CHAR(36) | 분산 트랜잭션 식별자 |
-| `trace_id` | VARCHAR | OpenTelemetry trace 연결 키 |
 | `payload` | JSON | 이벤트 본문 |
 | `occurred_at` | TIMESTAMP(3) | 도메인 이벤트 발생 시각 |
 
@@ -92,7 +91,7 @@ Outbox 패턴은 CDC 의 입력을 비즈니스가 통제하기 위한 장치입
 
 1. `aggregate_type` 컬럼 값을 보고 토픽을 결정합니다. 본 시스템은 `route.topic.replacement=opentraum.${routedByValue}` 으로 설정되어 있어, `aggregate_type=reservation` 이면 `opentraum.reservation` 토픽으로 갑니다.
 2. `aggregate_id` 를 메시지 키로 셋팅합니다. → 그래서 같은 엔터티에 대한 이벤트들이 같은 파티션으로 들어가 순서가 유지됩니다.
-3. `event_id`, `event_type`, `saga_id`, `trace_id` 를 Kafka 헤더로 전파합니다. 컨슈머는 헤더만 읽어 멱등성 처리와 trace 연결을 할 수 있습니다.
+3. `event_id`, `event_type`, `saga_id` 를 Kafka 헤더로 전파합니다. 컨슈머는 헤더만 읽어 멱등성 처리와 SAGA 단위 추적을 할 수 있습니다.
 
 또한 connector 설정 한 줄(`expand.json.payload=true`) 로 `payload` JSON 컬럼이 큐 메시지 본문에서 다시 한 번 문자열로 감싸지지 않게 막혀 있습니다. 이 한 줄이 빠지면 컨슈머가 두 번 parse 해야 하는 함정이 생깁니다 (라이브 트러블슈팅은 [10.4](#104-json-이중-직렬화-컨슈머-parse-실패) 에 기록).
 
@@ -107,7 +106,7 @@ SAGA 의 조정 방식은 두 가지로 나뉩니다.
 | 조율자 | 별도 orchestrator 서비스 | 없음 (각 서비스가 자율) |
 | 흐름 결정 | orchestrator 코드가 다음 단계 호출 | 각 서비스가 이벤트를 구독해 다음 이벤트 발행 |
 | 결합도 | 중앙 집중 (orchestrator 가 모든 도메인을 알아야 함) | 분산 (각 서비스는 자기 입출력 이벤트만 알면 됨) |
-| 추적 | orchestrator 로그가 단일 출처 | `saga_id` + `trace_id` 헤더로 추적 |
+| 추적 | orchestrator 로그가 단일 출처 | `saga_id` 헤더로 추적 |
 | 단점 | orchestrator 가 SPOF | 흐름이 코드 한 곳에 모이지 않음 |
 
 본 시스템은 Choreography 입니다. orchestrator 가 따로 없고, 각 서비스(reservation / payment / event) 가 자기 도메인 이벤트를 구독해서 자기 outbox 에 다음 이벤트를 적습니다. 흐름의 전체 모습은 outbox 의 `saga_id` 가 같은 행들을 모아 보면 한 SAGA 단위가 재구성됩니다.
@@ -139,7 +138,7 @@ flowchart TB
     direction TB
     DEB["Debezium MariaDB<br/>Connector 3.2.0<br/>table.include.list=outbox_events"]:::data
     SMT["EventRouter SMT<br/>route.by.field=aggregate_type"]:::data
-    TOPIC["Kafka 토픽<br/>opentraum.reservation<br/>headers: event_id / saga_id / trace_id"]:::data
+    TOPIC["Kafka 토픽<br/>opentraum.reservation<br/>headers: event_id / saga_id"]:::data
   end
 
   subgraph CONS["opentraum ns (다른 도메인 컨슈머)"]
@@ -438,7 +437,7 @@ Outbox EventRouter SMT(`io.debezium.transforms.outbox.EventRouter`) 는 Debezium
 | `transforms.outbox.route.by.field` | `aggregate_type` | outbox row 의 이 컬럼 값으로 토픽 라우팅 |
 | `transforms.outbox.route.topic.replacement` | `opentraum.${routedByValue}` | 결과 토픽: `opentraum.reservation`, `opentraum.payment`, `opentraum.event` |
 | `transforms.outbox.route.tombstone.on.empty.payload` | `"false"` | payload 가 비어도 tombstone 보내지 않음 |
-| `transforms.outbox.table.fields.additional.placement` | `event_id:header:event_id, event_type:header:event_type, saga_id:header:saga_id, trace_id:header:trace_id` | outbox 컬럼 4개를 Kafka 메시지 헤더로 매핑 |
+| `transforms.outbox.table.fields.additional.placement` | `event_id:header:event_id, event_type:header:event_type, saga_id:header:saga_id` | outbox 컬럼 3개를 Kafka 메시지 헤더로 매핑 |
 | `transforms.outbox.table.field.event.key` | `aggregate_id` | Kafka 메시지 키 = aggregate_id (파티셔닝 안정화) |
 | `transforms.outbox.table.field.event.payload` | `payload` | Kafka 메시지 value = outbox.payload 컬럼 |
 | `transforms.outbox.table.expand.json.payload` | `"true"` | MariaDB JSON 컬럼을 그대로 펼침 (이중 직렬화 회피) |
@@ -460,7 +459,6 @@ Outbox EventRouter SMT(`io.debezium.transforms.outbox.EventRouter`) 는 Debezium
 | `aggregate_type` | VARCHAR | 라우팅 키 (`reservation` / `payment` / `event`) |
 | `event_type` | VARCHAR | `SeatHeld`, `PaymentCompleted` 등 이벤트 종류 |
 | `saga_id` | CHAR(36) | SAGA 트랜잭션 식별자 |
-| `trace_id` | VARCHAR | 분산 추적 ID (Tempo 와 연결) |
 | `payload` | JSON | 이벤트 본문 (`expand.json.payload=true` 로 그대로 펼침) |
 | `occurred_at` | TIMESTAMP | 도메인 이벤트 발생 시각 |
 
@@ -478,7 +476,7 @@ flowchart LR
   BIN["MariaDB binlog<br/>(ROW + FULL, server_id 184060/61/62)"]:::data
   DEB["Debezium MariaDB<br/>Connector 3.2.0"]:::data
   SMT["EventRouter SMT<br/>route.by.field=aggregate_type<br/>opentraum.${routedByValue}"]:::data
-  TOPIC["Kafka 토픽<br/>opentraum.{reservation, payment, event}<br/>headers: event_id / event_type / saga_id / trace_id"]:::data
+  TOPIC["Kafka 토픽<br/>opentraum.{reservation, payment, event}<br/>headers: event_id / event_type / saga_id"]:::data
   CONS["컨슈머 서비스<br/>(reservation / payment / event)"]:::app
 
   APP -->|"INSERT 1건"| OUT
@@ -492,7 +490,7 @@ flowchart LR
   classDef data fill:#FFC9C9,stroke:#B22222,color:#222
 ```
 
-이 그림이 보여주는 핵심은 두 가지입니다. 첫째, 앱은 자기 트랜잭션 안에서 비즈니스 테이블과 outbox 테이블을 함께 INSERT 하기만 하면 됩니다. 메시지 발행은 Debezium 이 비동기로 책임집니다. 둘째, 메시지의 키와 헤더가 SMT 단계에서 그대로 결정되므로 컨슈머는 헤더만 읽어 멱등성(`event_id`) 과 SAGA 추적(`saga_id`, `trace_id`) 을 구현할 수 있습니다.
+이 그림이 보여주는 핵심은 두 가지입니다. 첫째, 앱은 자기 트랜잭션 안에서 비즈니스 테이블과 outbox 테이블을 함께 INSERT 하기만 하면 됩니다. 메시지 발행은 Debezium 이 비동기로 책임집니다. 둘째, 메시지의 키와 헤더가 SMT 단계에서 그대로 결정되므로 컨슈머는 헤더만 읽어 멱등성(`event_id`) 과 SAGA 추적(`saga_id`) 을 구현할 수 있습니다.
 
 ---
 

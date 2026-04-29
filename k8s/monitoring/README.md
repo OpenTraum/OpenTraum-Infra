@@ -8,7 +8,7 @@ monitoring ns 의 Helm release 3개에 대한 values.yaml 모음.
 |---|---|---|---|
 | `kube-prometheus-stack` | `prometheus-community/kube-prometheus-stack` | 82.16.2 | Prometheus + Alertmanager + Grafana + Operator + kube-state-metrics |
 | `loki` | `grafana/loki` | 6.55.0 | 로그 저장 (SingleBinary) + gateway |
-| `alloy` | `grafana/alloy` | 1.7.0 | 로그/메트릭/OTLP 수집 (DaemonSet) — values 파일 불필요 |
+| `alloy` | `grafana/alloy` | 1.7.0 | 로그 수집 (DaemonSet), values 파일 불필요 |
 
 ## 파일
 
@@ -63,7 +63,7 @@ helm upgrade loki grafana/loki \
 ### alloy 제외 이유
 
 - DaemonSet 이라 각 노드당 1개씩 자동 분산
-- `alloy/configmap-patch.yaml` 로 OTLP receiver + Tempo exporter 만 별도 관리
+- `alloy/configmap-patch.yaml` 로 Loki push 파이프라인을 별도 관리
 
 ## 히스토리
 
@@ -73,6 +73,6 @@ helm upgrade loki grafana/loki \
 
 ## 튜닝 후보 (미적용)
 
-- Loki/Tempo 를 StorageClass "ebs-sc" → "gp3" 로 변경해 비용 절감 (gp2 → gp3 는 IOPS 기본 3000 보장)
+- Loki 를 StorageClass "ebs-sc" → "gp3" 로 변경해 비용 절감 (gp2 → gp3 는 IOPS 기본 3000 보장)
 - Prometheus federation 구성 (멀티 클러스터 확장 시)
 - Grafana dashboard 자동 프로비저닝 (ConfigMap 기반)
