@@ -31,7 +31,7 @@ spec:
     schema.history.internal.kafka.topic: schema-history.reservation
 
     # === Snapshot / internal topics ===
-    snapshot.mode: initial
+    snapshot.mode: when_needed
     include.schema.changes: "false"
     tombstones.on.delete: "false"
 

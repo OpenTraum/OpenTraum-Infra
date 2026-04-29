@@ -28,7 +28,7 @@ spec:
     schema.history.internal.kafka.bootstrap.servers: my-kafka-cluster-kafka-bootstrap.kafka:9092
     schema.history.internal.kafka.topic: schema-history.payment
 
-    snapshot.mode: initial
+    snapshot.mode: when_needed
     include.schema.changes: "false"
     tombstones.on.delete: "false"
 
