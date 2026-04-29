@@ -55,7 +55,7 @@
 | kube-public | 25d | 시스템 공개 정보 |
 | kube-system | 25d | EKS 핵심 컴포넌트 |
 | mariadb | 11d | 통합 MariaDB(auth/user) |
-| monitoring | 25d | Prometheus / Grafana / Loki / Tempo / Alloy |
+| monitoring | 25d | Prometheus / Grafana / Loki / Alloy |
 | opentraum | 20h | 6 백엔드 + web (앱) |
 | redis | 11d | 분산 락 / 세션 캐시 |
 
@@ -422,7 +422,7 @@ gateway 두 Pod와 web 두 Pod는 각각 서로 다른 노드에 분산되었고
 1. `kubectl describe pod -n opentraum user-service-5d9d945986-k2r2r`의 Last State에서 종료 사유(OOMKilled / Error / Probe failure) 확인.
 2. `kubectl logs -n opentraum user-service-5d9d945986-k2r2r --previous`로 이전 컨테이너 종료 직전 로그 확인. Spring stack trace 또는 OOM 메시지 검색.
 3. `kubectl get events -n opentraum --field-selector involvedObject.name=user-service-5d9d945986-k2r2r`로 시간순 이벤트 확인.
-4. Memory 사용량이 limits(1024Mi)에 근접했다면 [05 OBSERVABILITY]의 Grafana JVM 대시보드에서 heap, non-heap, GC 빈도 확인.
+4. Memory 사용량이 limits(1024Mi)에 근접했다면 [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md)의 Grafana JVM 대시보드에서 heap, non-heap, GC 빈도 확인.
 5. livenessProbe 실패가 원인이라면 11.2의 의존성 전파 시나리오 가능성 검토.
 
 ---

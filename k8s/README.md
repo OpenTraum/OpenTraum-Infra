@@ -19,9 +19,7 @@ k8s/
 ├── kafka-connect/           Strimzi KafkaConnect + Connectors + Topics
 ├── redis/                   opentraum-redis (priorityClass: high)
 │
-├── tempo/                   Grafana Tempo (monitoring ns)
-├── alloy/                   Grafana Alloy config/service patch
-└── grafana/                 Grafana Tempo datasource
+└── alloy/                   Grafana Alloy config patch (로그 수집)
 ```
 
 ## Kafka — Strimzi `my-kafka-cluster` 사용
@@ -64,10 +62,8 @@ kubectl apply -f redis/
 # 4. CDC (Strimzi KafkaConnect + Connector + Topic)
 bash kafka-connect/deploy.sh
 
-# 5. 관측
-bash tempo/deploy.sh
+# 5. 모니터링
 kubectl apply -f alloy/
-kubectl apply -f grafana/
 
 # 6. 앱: 각 서비스 레포 `k8s/` 가 SoT. ArgoCD Application 이 자동 sync.
 #    DB Secret (auth-db-secret, user-db-secret, event-db-secret, reservation-db-secret, payment-db-secret) 은
