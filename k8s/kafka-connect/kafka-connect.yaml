@@ -75,11 +75,20 @@ spec:
       log4j.logger.io.debezium.transforms.outbox: "INFO"
 
   build:
-    # TODO(opentraum): Harbor/ECR 등 실제 레지스트리 주소로 교체 후 apply
+    # Strimzi Operator가 base 이미지 + Debezium MariaDB plugin + EventRouter SMT를
+    # 다운로드해서 새 이미지 빌드 → output.image 로 push.
+    # ECR push: kafka NS의 ecr-push-secret(skala-student access key 기반 docker-registry)
+    # 노드 pull은 별도 IAM(AmazonEC2ContainerRegistryPullOnly)로 처리되므로 imagePullSecrets 불필요.
+    # ⚠️ ECR auth token 12h 만료 — 재빌드 필요 시 ecr-push-secret 갱신:
+    #     aws ecr get-login-password --region ap-northeast-2 | \
+    #       kubectl create secret docker-registry ecr-push-secret \
+    #         -n kafka --docker-server=881490135253.dkr.ecr.ap-northeast-2.amazonaws.com \
+    #         --docker-username=AWS --docker-password=- \
+    #         --dry-run=client -o yaml | kubectl apply -f -
     output:
       type: docker
-      image: amdp-registry.skala-ai.com/skala26a-cloud/team8-opentraum-debezium-connect:3.2.0
-      pushSecret: harbor-registry-secret
+      image: 881490135253.dkr.ecr.ap-northeast-2.amazonaws.com/skala3-cloud1-team8-opentraum-debezium-connect:3.2.0
+      pushSecret: ecr-push-secret
     plugins:
       - name: debezium-mariadb-connector
         artifacts:
