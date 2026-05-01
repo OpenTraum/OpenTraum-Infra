@@ -1,6 +1,6 @@
 # Alloy values.yaml
 #
-# Helm release: alloy (chart 1.7.0, app v1.15.0)
+# Helm release: alloy (chart 1.8.0, app v1.16.0)
 # 설치 ns: monitoring
 #
 # alloy는 노드 로그 수집 DaemonSet입니다.

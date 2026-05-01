@@ -6,16 +6,16 @@ monitoring ns 의 Helm release 3개에 대한 values.yaml 모음.
 
 | Release | Chart | Version | 주요 역할 |
 |---|---|---|---|
-| `kube-prometheus-stack` | `prometheus-community/kube-prometheus-stack` | 84.3.0 | Prometheus + Alertmanager + Grafana + Operator + kube-state-metrics |
-| `loki` | `grafana/loki` | 7.0.0 | 로그 저장 (SingleBinary) + gateway + canary |
-| `alloy` | `grafana/alloy` | 1.7.0 | 로그 수집 (DaemonSet), 일반 워커 노드 배치 |
+| `kube-prometheus-stack` | `prometheus-community/kube-prometheus-stack` | 84.4.0 | Prometheus + Alertmanager + Grafana + Operator + kube-state-metrics |
+| `loki` | `grafana/loki` | 7.0.0 | 로그 저장 (SingleBinary) + gateway |
+| `alloy` | `grafana/alloy` | 1.8.0 | 로그 수집 (DaemonSet), 일반 워커 노드 배치 |
 
 ## 파일
 
 | 파일 | 대상 |
 |---|---|
 | `values-kube-prometheus-stack.yaml` | kube-prometheus-stack 전체 |
-| `values-loki.yaml` | loki singleBinary + gateway + loki-canary |
+| `values-loki.yaml` | loki singleBinary + gateway |
 | `values-alloy.yaml` | alloy 로그 수집 + 일반 워커 노드 배치 |
 
 ## 적용
@@ -28,12 +28,15 @@ helm repo update
 
 # Upgrade
 helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --version 84.4.0 \
   -n monitoring -f values-kube-prometheus-stack.yaml
 
 helm upgrade loki grafana/loki \
+  --version 7.0.0 \
   -n monitoring -f values-loki.yaml
 
 helm upgrade alloy grafana/alloy \
+  --version 1.8.0 \
   -n monitoring -f values-alloy.yaml
 ```
 
@@ -65,10 +68,17 @@ helm upgrade alloy grafana/alloy \
 
 ### DaemonSet 스케줄링 기준
 
-- `alloy` 와 `loki-canary` 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에만 배치
+- `alloy` 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에만 배치
+- `loki-canary` 는 실습용 검증 컴포넌트라 운영 배포에서는 비활성화
 - GPU 노드의 GPU 메트릭은 `gpu-monitoring/dcgm-exporter.yml` 이 별도 수집
 - `nvidia-device-plugin` 은 GPU 노드에서만 `nvidia.com/gpu` 리소스를 광고
 - 기존 `alloy/configmap-patch.yaml` 은 수동 ConfigMap 패치용 참고 파일이며, 정식 배포는 `values-alloy.yaml` 로 관리
+
+### GPU monitoring 관리 기준
+
+- `dcgm-exporter`, ServiceMonitor, GPU Grafana dashboard 는 `k8s/gpu-monitoring/` raw manifest 로 관리
+- Helm release(`kube-prometheus-stack`, `loki`, `alloy`) 는 core monitoring 구성만 관리
+- GPU dashboard 는 Grafana sidecar 가 `grafana_dashboard: "1"` 라벨 ConfigMap 을 watch 해서 자동 등록
 
 ## 히스토리
 

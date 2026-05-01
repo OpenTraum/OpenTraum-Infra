@@ -61,7 +61,7 @@ OpenTraum 의 EKS 인프라(클러스터, 네트워크, 워크로드, 데이터,
 | CDC | Debezium MariaDB 3.2.0 + Outbox EventRouter SMT |
 | GitOps | ArgoCD v3.3.6 (Application 7개, 모두 Synced/Healthy) |
 | 이미지 레지스트리 | Harbor (<HARBOR_REGISTRY> / project <HARBOR_PROJECT>) |
-| 모니터링 | Prometheus v3.11.3, Grafana 13.0.1, Loki 3.6.7, Alloy v1.15.0 |
+| 모니터링 | Prometheus v3.11.3, Grafana 13.0.1, Loki 3.6.7, Alloy v1.16.0 |
 
 ## 3.5 정량 성과 한눈에 보기
 

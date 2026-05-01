@@ -1,6 +1,6 @@
 # kube-prometheus-stack values.yaml
 #
-# Helm release: kube-prometheus-stack (chart 84.3.0, app v0.90.1)
+# Helm release: kube-prometheus-stack (chart 84.4.0, app v0.90.1)
 # 설치 ns: monitoring
 #
 # 주요 변경 (2026-04-22):
@@ -12,7 +12,7 @@
 #   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 #   helm repo update
 #   helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-#     -n monitoring -f values-kube-prometheus-stack.yaml
+#     --version 84.4.0 -n monitoring -f values-kube-prometheus-stack.yaml
 
 # ===== Prometheus =====
 prometheus:
