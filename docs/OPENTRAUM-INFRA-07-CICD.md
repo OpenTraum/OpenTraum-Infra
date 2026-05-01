@@ -533,7 +533,7 @@ location /api/ {
 
 Spring 6서비스 평균은 약 167 MiB 이고, web 은 1자리수 MiB 입니다. Spring 서비스간 크기 차이는 도메인별 의존성(예: event 의 OpenAI SDK, reservation 의 Redisson 분산 락 라이브러리 + Kafka 클라이언트) 의 양에서 발생합니다. layered JAR 의 효과는 이 표의 절대 크기에는 보이지 않지만, 코드만 변경된 빌드의 push 단계에서 의존성 layer (이미지 크기의 가장 큰 비중) 가 캐시 hit 으로 재업로드되지 않는 형태로 나타납니다.
 
-(참고) 같은 클러스터의 KafkaConnect 커스텀 이미지 `<HARBOR_REGISTRY>/<HARBOR_PROJECT>/team8-opentraum-debezium-connect` 는 Strimzi build 결과물로 약 398 MiB 입니다. 이는 Debezium MariaDB Connector tar (수십 MB) + Outbox EventRouter SMT 가 Strimzi 베이스 이미지 위에 쌓여 만들어진 크기입니다.
+(참고) 같은 클러스터의 KafkaConnect 커스텀 이미지 `<ECR_REGISTRY>/<ECR_REPOSITORY_PREFIX>debezium-connect:3.2.0` 는 Strimzi build 결과물로 약 398 MiB 입니다. 이는 Debezium MariaDB Connector tar (수십 MB) + Outbox EventRouter SMT 가 Strimzi 베이스 이미지 위에 쌓여 ECR 로 push 된 크기입니다.
 
 이 측정값은 `kubectl get nodes -o json | jq '.items[].status.images[]'` 로 누구나 재현할 수 있습니다.
 

@@ -4,9 +4,10 @@
 #
 # 순서:
 #   1) 3개 MariaDB StatefulSet (reservation-db, payment-db, event-db)
-#   2) Debezium KafkaConnect CR (Strimzi가 Connect 클러스터 기동 + JAR 빌드)
-#   3) KafkaTopic CR (비즈니스 토픽 + DLQ + schema-history)
-#   4) 3개 KafkaConnector CR (Connect Pod Ready 대기 후)
+#   2) KafkaConnect Secret provider RBAC 적용
+#   3) Debezium KafkaConnect CR (Strimzi가 Connect 클러스터 기동 + JAR 빌드)
+#   4) KafkaTopic CR (비즈니스 토픽 + DLQ + schema-history)
+#   5) 3개 KafkaConnector CR (Connect Pod Ready 대기 후)
 #
 # idempotent: apply만 수행. 파괴적 명령(delete/force/--grace-period=0) 없음.
 #
@@ -45,19 +46,25 @@ for sts in reservation-db payment-db event-db; do
 done
 
 # ---------------------------------------------------------------------------
-# 2) Debezium KafkaConnect CR
+# 2) KafkaConnect Secret provider RBAC 적용
+# ---------------------------------------------------------------------------
+log "KafkaConnect Secret provider RBAC 적용"
+kubectl apply -f "${CONNECT_DIR}/secret-rbac.yaml"
+
+# ---------------------------------------------------------------------------
+# 3) Debezium KafkaConnect CR
 # ---------------------------------------------------------------------------
 log "KafkaConnect CR 적용 (Strimzi가 Connect + Debezium 이미지 빌드/배포)"
 kubectl apply -f "${CONNECT_DIR}/kafka-connect.yaml"
 
 # ---------------------------------------------------------------------------
-# 3) KafkaTopic CR
+# 4) KafkaTopic CR
 # ---------------------------------------------------------------------------
 log "KafkaTopic CR 적용 (비즈니스 3 + DLQ + schema-history 3)"
 kubectl apply -f "${CONNECT_DIR}/topics.yaml"
 
 # ---------------------------------------------------------------------------
-# 4) Connect Pod Ready 대기 후 Connector CR apply
+# 5) Connect Pod Ready 대기 후 Connector CR apply
 # ---------------------------------------------------------------------------
 log "KafkaConnect 클러스터 Ready 대기 (Strimzi가 build/deploy 끝낼 때까지)"
 # Strimzi KafkaConnect는 Ready condition을 status에 채움
@@ -65,9 +72,11 @@ kubectl -n "${NS}" wait kafkaconnect/opentraum-debezium-connect \
   --for=condition=Ready \
   --timeout=900s
 
-log "Connect Pod Ready 대기"
-kubectl -n "${NS}" rollout status deployment/opentraum-debezium-connect-connect \
-  --timeout=600s || true
+log "Connect Pod Ready 대기 (Strimzi pod label 기준)"
+kubectl -n "${NS}" wait pod \
+  -l strimzi.io/cluster=opentraum-debezium-connect,strimzi.io/kind=KafkaConnect \
+  --for=condition=Ready \
+  --timeout=600s
 
 log "KafkaConnector CR 적용 (reservation / payment / event)"
 kubectl apply -f "${CONNECT_DIR}/connector-reservation.yaml"

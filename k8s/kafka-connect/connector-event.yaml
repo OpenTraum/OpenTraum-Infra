@@ -15,8 +15,8 @@ spec:
   config:
     database.hostname: event-db.kafka
     database.port: 3306
-    database.user: opentraum
-    database.password: "opentraum123!"
+    database.user: ${secrets:kafka/event-db-secret:mariadb-user}
+    database.password: ${secrets:kafka/event-db-secret:mariadb-password}
     database.server.id: 184062
     database.server.name: event
 
