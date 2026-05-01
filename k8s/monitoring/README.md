@@ -6,17 +6,17 @@ monitoring ns 의 Helm release 3개에 대한 values.yaml 모음.
 
 | Release | Chart | Version | 주요 역할 |
 |---|---|---|---|
-| `kube-prometheus-stack` | `prometheus-community/kube-prometheus-stack` | 82.16.2 | Prometheus + Alertmanager + Grafana + Operator + kube-state-metrics |
-| `loki` | `grafana/loki` | 6.55.0 | 로그 저장 (SingleBinary) + gateway |
-| `alloy` | `grafana/alloy` | 1.7.0 | 로그 수집 (DaemonSet), values 파일 불필요 |
+| `kube-prometheus-stack` | `prometheus-community/kube-prometheus-stack` | 84.3.0 | Prometheus + Alertmanager + Grafana + Operator + kube-state-metrics |
+| `loki` | `grafana/loki` | 7.0.0 | 로그 저장 (SingleBinary) + gateway + canary |
+| `alloy` | `grafana/alloy` | 1.7.0 | 로그 수집 (DaemonSet), 일반 워커 노드 배치 |
 
 ## 파일
 
 | 파일 | 대상 |
 |---|---|
 | `values-kube-prometheus-stack.yaml` | kube-prometheus-stack 전체 |
-| `values-loki.yaml` | loki singleBinary + gateway |
-| (alloy) | DaemonSet 이라 자동 분산, 별도 values 없음. 필요 시 `alloy/configmap-patch.yaml` 참고 |
+| `values-loki.yaml` | loki singleBinary + gateway + loki-canary |
+| `values-alloy.yaml` | alloy 로그 수집 + 일반 워커 노드 배치 |
 
 ## 적용
 
@@ -32,6 +32,9 @@ helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
 
 helm upgrade loki grafana/loki \
   -n monitoring -f values-loki.yaml
+
+helm upgrade alloy grafana/alloy \
+  -n monitoring -f values-alloy.yaml
 ```
 
 ## 주요 설계 결정
@@ -60,10 +63,12 @@ helm upgrade loki grafana/loki \
 - EBS CSI 는 AZ-bound. Loki singleBinary PVC 가 2a/2b 중 하나에 바인딩되면 해당 AZ 3노드 중에서만 스케줄 가능
 - `replicas=1` 이므로 분산 효과 제한적. 주 목적은 "특정 노드에 집중되지 않게" 힌트 제공
 
-### alloy 제외 이유
+### DaemonSet 스케줄링 기준
 
-- DaemonSet 이라 각 노드당 1개씩 자동 분산
-- `alloy/configmap-patch.yaml` 로 Loki push 파이프라인을 별도 관리
+- `alloy` 와 `loki-canary` 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에만 배치
+- GPU 노드의 GPU 메트릭은 `gpu-monitoring/dcgm-exporter.yml` 이 별도 수집
+- `nvidia-device-plugin` 은 GPU 노드에서만 `nvidia.com/gpu` 리소스를 광고
+- 기존 `alloy/configmap-patch.yaml` 은 수동 ConfigMap 패치용 참고 파일이며, 정식 배포는 `values-alloy.yaml` 로 관리
 
 ## 히스토리
 

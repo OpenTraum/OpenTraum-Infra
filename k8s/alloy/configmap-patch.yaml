@@ -3,6 +3,8 @@
 #
 # 기존 Helm chart가 생성한 alloy ConfigMap을 완전히 대체합니다.
 # Kubernetes Pod 로그 수집(Loki push) 블록만 정의합니다.
+# 정식 배포는 k8s/monitoring/values-alloy.yaml 로 관리하고,
+# 이 파일은 수동 ConfigMap 패치가 필요할 때만 사용합니다.
 #
 # 주의: 이 파일 apply 후 alloy DaemonSet/Deployment를 rollout restart 해야
 #       새 config가 반영됩니다.
@@ -41,6 +43,10 @@ data:
       rule {
         source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
         target_label  = "app"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_part_of"]
+        target_label  = "project"
       }
     }
 

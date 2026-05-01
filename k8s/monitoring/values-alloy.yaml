@@ -1,0 +1,56 @@
+# Alloy values.yaml
+#
+# Helm release: alloy (chart 1.7.0, app v1.15.0)
+# 설치 ns: monitoring
+#
+# alloy는 노드 로그 수집 DaemonSet입니다.
+# GPU 노드는 dcgm-exporter가 별도로 수집하므로 일반 워커 노드에서만 기동합니다.
+
+controller:
+  type: daemonset
+  nodeSelector:
+    eks.amazonaws.com/nodegroup: skala3-cloud1-team8-ng
+  tolerations: []
+
+alloy:
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_part_of"]
+          target_label  = "project"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+        }
+      }

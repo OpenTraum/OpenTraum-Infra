@@ -36,8 +36,10 @@
 - 매니페스트와 values 파일:
   - `k8s/monitoring/values-kube-prometheus-stack.yaml`
   - `k8s/monitoring/values-loki.yaml`
+  - `k8s/monitoring/values-alloy.yaml`
   - `k8s/monitoring/README.md`
-  - `k8s/alloy/configmap-patch.yaml`
+  - `k8s/gpu-monitoring/nvidia-device-plugin.yml`
+  - `k8s/gpu-monitoring/dcgm-exporter.yml`
 
 ---
 
@@ -220,7 +222,7 @@ PVC 라이브 인벤토리는 다음과 같습니다.
 |---|---|---|---|
 | `storage-loki-0` | 10Gi | RWO | `ebs-sc` |
 
-DaemonSet 인 alloy 와 loki-canary 는 일반 워커 노드에서 기동되며, taint 가 걸린 g5 노드는 회피합니다. 본문에서는 "노드당 1 Pod (DaemonSet)" 으로 표기합니다.
+DaemonSet 인 alloy 와 loki-canary 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에서만 기동됩니다. GPU 노드는 `nvidia-device-plugin` 과 `dcgm-exporter` 가 담당하며, 일반 로그 수집 DaemonSet 이 GPU 노드의 Pod slot 을 사용하지 않도록 분리합니다. 본문에서는 "노드당 1 Pod (DaemonSet)" 으로 표기합니다.
 
 ---
 
@@ -355,7 +357,7 @@ Alloy 는 `loki-gateway` (`http://loki-gateway.monitoring.svc.cluster.local/loki
 
 ## 8. Alloy DaemonSet과 로그 수집 흐름
 
-Alloy 는 노드당 1 Pod 의 DaemonSet 입니다. `configmap-patch.yaml` 은 chart 가 만든 기본 alloy ConfigMap 을 통째로 덮어쓰는 patch 매니페스트로, Pod 로그 수집 파이프라인을 정의합니다.
+Alloy 는 일반 워커 노드당 1 Pod 의 DaemonSet 입니다. `values-alloy.yaml` 은 chart values 로 Pod 로그 수집 파이프라인과 일반 워커 노드 배치 기준을 함께 정의합니다. `alloy/configmap-patch.yaml` 은 수동 ConfigMap 패치가 필요할 때 참고하는 보조 파일입니다.
 
 ```
 discovery.kubernetes "pods"  -> Pod 자원 watch
