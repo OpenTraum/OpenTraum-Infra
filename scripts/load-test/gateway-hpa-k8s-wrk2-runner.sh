@@ -67,6 +67,7 @@ Examples:
 Optional:
   LOADTEST_NAMESPACE=opentraum-loadtest
   TARGET_NAMESPACE=opentraum
+  GATEWAY_LABEL_SELECTOR=app=gateway
   TARGET_URL=http://gateway.opentraum.svc.cluster.local:8080/api/__loadtest__
   IMAGE=cylab/wrk2:latest
   TOTAL_RATE=10000
@@ -104,10 +105,38 @@ require_positive_integer() {
   [[ "${value}" =~ ^[1-9][0-9]*$ ]] || fail "${name} must be a positive integer. got=${value}"
 }
 
+validate_match_label_selector() {
+  local name="$1"
+  local selector="$2"
+  [[ -n "${selector//[[:space:]]/}" ]] || fail "${name} must not be empty"
+
+  local item key value
+  local normalized="${selector//,/ }"
+  for item in ${normalized}; do
+    key="${item%%=*}"
+    value="${item#*=}"
+    [[ -n "${key}" && -n "${value}" && "${key}" != "${value}" ]] || fail "${name} must use equality-only key=value items. got=${item}"
+    [[ "${key}" != *'!'* && "${key}" != *'('* && "${key}" != *')'* ]] || fail "${name} only supports key=value items that can be rendered into matchLabels. got=${item}"
+  done
+}
+
+match_labels_yaml() {
+  local selector="$1"
+  local indent="$2"
+  local normalized="${selector//,/ }"
+  local item key value
+  for item in ${normalized}; do
+    key="${item%%=*}"
+    value="${item#*=}"
+    printf '%*s%s: "%s"\n' "${indent}" '' "${key}" "${value}"
+  done
+}
+
 validate() {
   [[ "${DRY_RUN}" = "0" || "${DRY_RUN}" = "1" ]] || fail "DRY_RUN must be 0 or 1. got=${DRY_RUN}"
   [[ "${AVOID_GATEWAY_NODES}" = "0" || "${AVOID_GATEWAY_NODES}" = "1" ]] || fail "AVOID_GATEWAY_NODES must be 0 or 1. got=${AVOID_GATEWAY_NODES}"
   [[ "${STRICT_GATEWAY_NODE_AVOIDANCE}" = "0" || "${STRICT_GATEWAY_NODE_AVOIDANCE}" = "1" ]] || fail "STRICT_GATEWAY_NODE_AVOIDANCE must be 0 or 1. got=${STRICT_GATEWAY_NODE_AVOIDANCE}"
+  validate_match_label_selector "GATEWAY_LABEL_SELECTOR" "${GATEWAY_LABEL_SELECTOR}"
   require_positive_integer "TOTAL_RATE" "${TOTAL_RATE}"
   require_positive_integer "PODS" "${PODS}"
   require_positive_integer "THREADS" "${THREADS}"
@@ -232,7 +261,9 @@ YAML
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  app: gateway
+YAML
+    match_labels_yaml "${GATEWAY_LABEL_SELECTOR}" 18
+    cat <<YAML
               namespaces:
                 - ${TARGET_NAMESPACE}
               topologyKey: kubernetes.io/hostname
@@ -314,6 +345,7 @@ main() {
     echo "connections=${CONNECTIONS}"
     echo "duration_seconds=${DURATION_SECONDS}"
     echo "timeout_seconds=${TIMEOUT_SECONDS}"
+    echo "gateway_label_selector=${GATEWAY_LABEL_SELECTOR}"
     echo "avoid_gateway_nodes=${AVOID_GATEWAY_NODES}"
     echo "strict_gateway_node_avoidance=${STRICT_GATEWAY_NODE_AVOIDANCE}"
     echo "gateway_node_exclusion_count=$(printf '%s\n' "${GATEWAY_NODES}" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"

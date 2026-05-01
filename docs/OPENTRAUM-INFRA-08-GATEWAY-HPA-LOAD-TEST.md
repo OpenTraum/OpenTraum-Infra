@@ -112,7 +112,24 @@ TOTAL_RATE=2000 \
 PODS=17 \
 THREADS=2 \
 CONNECTIONS=128 \
+GATEWAY_LABEL_SELECTOR="app=gateway" \
 LOADGEN_NODE_SELECTOR="nodegroup-type=gpu" \
+LOADGEN_TOLERATION_KEY=nodegroup-type \
+LOADGEN_TOLERATION_VALUE=gpu \
+scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh
+```
+
+`3 GPU + 1 wrk`처럼 같은 비서비스 nodegroup 안에서 wrk 노드 1개만 분리할 때는 wrk 노드에 별도 역할 label을 붙이고, 기존 GPU taint는 그대로 toleration합니다.
+
+```bash
+KUBECONFIG="<KUBECONFIG_PATH>" \
+DRY_RUN=0 \
+TOTAL_RATE=10000 \
+PODS=17 \
+THREADS=2 \
+CONNECTIONS=256 \
+GATEWAY_LABEL_SELECTOR="app=gateway" \
+LOADGEN_NODE_SELECTOR="opentraum.io/node-role=loadgen" \
 LOADGEN_TOLERATION_KEY=nodegroup-type \
 LOADGEN_TOLERATION_VALUE=gpu \
 scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh
@@ -124,9 +141,10 @@ runner guardrail은 다음과 같습니다.
 
 - 기본 target은 `http://gateway.opentraum.svc.cluster.local:8080/api/__loadtest__`
 - `opentraum-loadtest` namespace에서 Job 실행
-- `podAntiAffinity`로 Gateway Pod와 같은 node 배치를 회피
-- 실행 시점의 Gateway node를 `nodeAffinity` `NotIn`으로 제외
-- `LOADGEN_NODE_SELECTOR`와 `LOADGEN_TOLERATION_*`로 loadgen 전용 node pool 지정 가능
+- `GATEWAY_LABEL_SELECTOR` 기본값은 `app=gateway`이며, `key=value` 또는 쉼표로 구분한 equality selector를 지원
+- `podAntiAffinity`는 `GATEWAY_LABEL_SELECTOR`를 `matchLabels`로 렌더링해 Gateway Pod와 같은 node 배치를 회피
+- 실행 시점의 Gateway node도 같은 `GATEWAY_LABEL_SELECTOR`로 조회해 `nodeAffinity` `NotIn`으로 제외
+- `LOADGEN_NODE_SELECTOR`와 `LOADGEN_TOLERATION_*`로 loadgen 전용 node 지정 가능. 현재 기준은 `LOADGEN_NODE_SELECTOR="opentraum.io/node-role=loadgen"`과 기존 GPU taint toleration 조합
 - 기본 `DRY_RUN=1`로 manifest를 먼저 확인
 
 ---
