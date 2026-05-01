@@ -104,10 +104,10 @@ grafana:
           app.kubernetes.io/name: grafana
   resources:
     requests:
-      memory: 128Mi
+      memory: 192Mi
       cpu: 50m
     limits:
-      memory: 256Mi
+      memory: 512Mi
       cpu: 300m
 
 # ===== Operator =====
