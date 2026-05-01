@@ -40,6 +40,8 @@ CPU_LIMIT="${CPU_LIMIT:-500m}"
 MEMORY_REQUEST="${MEMORY_REQUEST:-64Mi}"
 MEMORY_LIMIT="${MEMORY_LIMIT:-256Mi}"
 GATEWAY_NODES=""
+LOAD_TEST_LOCK_DIR="${LOAD_TEST_LOCK_DIR:-/tmp/opentraum-gateway-hpa-loadtest.lock}"
+LOAD_TEST_LOCK_ACQUIRED=0
 
 usage() {
   cat <<'USAGE'
@@ -83,6 +85,7 @@ Optional:
   LOADGEN_TOLERATION_VALUE=gpu
   LOADGEN_TOLERATION_EFFECT=NoSchedule
   DRY_RUN=1
+  LOAD_TEST_LOCK_DIR=/tmp/opentraum-gateway-hpa-loadtest.lock
 USAGE
 }
 
@@ -97,6 +100,32 @@ log() {
 
 k() {
   "${KUBECTL_BIN}" "$@"
+}
+
+release_load_test_lock() {
+  if [[ "${LOAD_TEST_LOCK_ACQUIRED}" = "1" ]]; then
+    rm -rf "${LOAD_TEST_LOCK_DIR}"
+    LOAD_TEST_LOCK_ACQUIRED=0
+  fi
+}
+
+acquire_load_test_lock() {
+  if mkdir "${LOAD_TEST_LOCK_DIR}" 2>/dev/null; then
+    LOAD_TEST_LOCK_ACQUIRED=1
+    {
+      echo "pid=$$"
+      echo "started_at=$(date '+%Y-%m-%d %H:%M:%S %Z')"
+      echo "job_name=${JOB_NAME}"
+      echo "out_dir=${OUT_DIR}"
+    } > "${LOAD_TEST_LOCK_DIR}/owner"
+    trap release_load_test_lock EXIT INT TERM
+    log "Acquired load-test lock: ${LOAD_TEST_LOCK_DIR}"
+    return 0
+  fi
+
+  local owner="unknown"
+  [[ -f "${LOAD_TEST_LOCK_DIR}/owner" ]] && owner="$(tr '\n' ' ' < "${LOAD_TEST_LOCK_DIR}/owner")"
+  fail "another gateway load test appears to be running; lock=${LOAD_TEST_LOCK_DIR}; owner=${owner}. Remove the lock only after confirming no load test is active."
 }
 
 require_positive_integer() {
@@ -365,6 +394,7 @@ main() {
     return 0
   fi
 
+  acquire_load_test_lock
   k create namespace "${LOADTEST_NAMESPACE}" --dry-run=client -o yaml > "${OUT_DIR}/namespace.yaml"
   k apply -f "${OUT_DIR}/namespace.yaml"
 
