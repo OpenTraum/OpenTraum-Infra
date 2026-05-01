@@ -180,21 +180,20 @@ monitoring 네임스페이스에 설치된 Helm release 와 라이브 Pod 이미
 
 | Release | Chart 버전 | App 버전 | 역할 |
 |---|---|---|---|
-| `kube-prometheus-stack` | 84.3.0 | v0.90.1 | Prometheus, Alertmanager, Grafana, Operator, kube-state-metrics 통합 |
+| `kube-prometheus-stack` | 84.4.0 | v0.90.1 | Prometheus, Alertmanager, Grafana, Operator, kube-state-metrics 통합 |
 | `loki` | 7.0.0 | 3.6.7 | 로그 저장(SingleBinary) + gateway |
-| `alloy` | 1.7.0 | v1.15.0 | 로그 수집(DaemonSet) |
+| `alloy` | 1.8.0 | v1.16.0 | 로그 수집(DaemonSet) |
 
 라이브 Pod 인벤토리(이미지 태그 포함) 는 다음과 같습니다.
 
 | Pod | 이미지 |
 |---|---|
 | `alertmanager-kube-prometheus-stack-alertmanager-0` (2/2) | `quay.io/prometheus/alertmanager:v0.32.0` + `quay.io/prometheus-operator/prometheus-config-reloader:v0.90.1` |
-| `alloy-*` (DaemonSet, 노드당 1 Pod, 2/2) | `docker.io/grafana/alloy:v1.15.0` + `quay.io/prometheus-operator/prometheus-config-reloader:v0.81.0` |
+| `alloy-*` (DaemonSet, 노드당 1 Pod, 2/2) | `docker.io/grafana/alloy:v1.16.0` + `quay.io/prometheus-operator/prometheus-config-reloader:v0.81.0` |
 | `kube-prometheus-stack-grafana-*` (3/3) | `quay.io/kiwigrid/k8s-sidecar:2.7.1` (×2) + `docker.io/grafana/grafana:13.0.1` |
 | `kube-prometheus-stack-kube-state-metrics-*` | `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.18.0` |
 | `kube-prometheus-stack-operator-*` | `quay.io/prometheus-operator/prometheus-operator:v0.90.1` |
 | `loki-0` (2/2) | `docker.io/grafana/loki:3.6.7` + `docker.io/kiwigrid/k8s-sidecar:2.5.0` |
-| `loki-canary-*` (DaemonSet, 노드당 1 Pod) | `docker.io/grafana/loki-canary:3.6.7` |
 | `loki-gateway-*` | `docker.io/nginxinc/nginx-unprivileged:1.29-alpine` |
 | `prometheus-kube-prometheus-stack-prometheus-0` (2/2) | `quay.io/prometheus/prometheus:v3.11.3` + `quay.io/prometheus-operator/prometheus-config-reloader:v0.90.1` |
 
@@ -210,7 +209,6 @@ Service 라이브 인벤토리는 다음과 같습니다.
 | `kube-prometheus-stack-prometheus` | 9090, 8080 |
 | `kube-prometheus-stack-prometheus-node-exporter` | 9100 |
 | `loki` | 3100, 9095 |
-| `loki-canary` | 3500 |
 | `loki-gateway` | 80 |
 | `loki-headless` | 3100 |
 | `loki-memberlist` | 7946 |
@@ -222,7 +220,9 @@ PVC 라이브 인벤토리는 다음과 같습니다.
 |---|---|---|---|
 | `storage-loki-0` | 10Gi | RWO | `ebs-sc` |
 
-DaemonSet 인 alloy 와 loki-canary 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에서만 기동됩니다. GPU 노드는 `nvidia-device-plugin` 과 `dcgm-exporter` 가 담당하며, 일반 로그 수집 DaemonSet 이 GPU 노드의 Pod slot 을 사용하지 않도록 분리합니다. 본문에서는 "노드당 1 Pod (DaemonSet)" 으로 표기합니다.
+DaemonSet 인 alloy 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에서만 기동됩니다. GPU 노드는 `nvidia-device-plugin` 과 `dcgm-exporter` 가 담당하며, 일반 로그 수집 DaemonSet 이 GPU 노드의 Pod slot 을 사용하지 않도록 분리합니다. `loki-canary` 는 실습용 검증 컴포넌트라 운영 배포에서는 비활성화합니다.
+
+GPU monitoring 리소스는 Helm release 에 포함하지 않고 `k8s/gpu-monitoring/` raw manifest 로 관리합니다. `dcgm-exporter.yml` 에 DaemonSet, Service, ServiceMonitor 가 함께 들어 있고, `grafana-dashboard.yml` 은 `grafana_dashboard: "1"` 라벨 ConfigMap 으로 Grafana sidecar 가 자동 등록합니다. 따라서 GPU 대시보드(`uid: opentraum-gpu`)를 복구할 때는 두 manifest 를 다시 적용하면 됩니다.
 
 ---
 

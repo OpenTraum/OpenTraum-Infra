@@ -20,7 +20,7 @@ k8s/
 ├── redis/                   opentraum-redis (priorityClass: high)
 │
 ├── monitoring/              Helm values (Prometheus / Loki / Alloy)
-├── gpu-monitoring/          NVIDIA device plugin / DCGM exporter / GPU dashboard
+├── gpu-monitoring/          raw manifest (NVIDIA device plugin / DCGM exporter / GPU dashboard)
 └── alloy/                   Grafana Alloy 수동 ConfigMap patch 참고용
 ```
 
@@ -67,14 +67,18 @@ bash kafka-connect/deploy.sh
 # 5. 모니터링
 kubectl apply -f gpu-monitoring/nvidia-device-plugin.yml
 kubectl apply -f gpu-monitoring/dcgm-exporter.yml
+kubectl apply -f gpu-monitoring/grafana-dashboard.yml
 
 helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --version 84.4.0 \
   -n monitoring -f monitoring/values-kube-prometheus-stack.yaml
 
 helm upgrade loki grafana/loki \
+  --version 7.0.0 \
   -n monitoring -f monitoring/values-loki.yaml
 
 helm upgrade alloy grafana/alloy \
+  --version 1.8.0 \
   -n monitoring -f monitoring/values-alloy.yaml
 
 # 6. 앱: 각 서비스 레포 `k8s/` 가 SoT. ArgoCD Application 이 자동 sync.

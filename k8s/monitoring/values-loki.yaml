@@ -13,7 +13,7 @@
 # 적용:
 #   helm repo add grafana https://grafana.github.io/helm-charts
 #   helm repo update
-#   helm upgrade loki grafana/loki -n monitoring -f values-loki.yaml
+#   helm upgrade loki grafana/loki --version 7.0.0 -n monitoring -f values-loki.yaml
 
 deploymentMode: SingleBinary
 
@@ -97,10 +97,14 @@ gateway:
       memory: 128Mi
       cpu: 100m
 
+# loki-canary 는 실습용 검증 컴포넌트라 운영 배포에서는 제외합니다.
+# enabled=false 로 유지해야 helm upgrade 이후에도 DaemonSet 이 재생성되지 않습니다.
 lokiCanary:
-  nodeSelector:
-    eks.amazonaws.com/nodegroup: skala3-cloud1-team8-ng
-  tolerations: []
+  enabled: false
+
+# 기본 Helm test 는 loki-canary metrics endpoint 를 참조하므로 함께 비활성화합니다.
+test:
+  enabled: false
 
 # 기본 비활성 컴포넌트 (SingleBinary 모드)
 resultsCache:
