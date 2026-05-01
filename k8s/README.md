@@ -19,7 +19,9 @@ k8s/
 ├── kafka-connect/           Strimzi KafkaConnect + Connectors + Topics
 ├── redis/                   opentraum-redis (priorityClass: high)
 │
-└── alloy/                   Grafana Alloy config patch (로그 수집)
+├── monitoring/              Helm values (Prometheus / Loki / Alloy)
+├── gpu-monitoring/          NVIDIA device plugin / DCGM exporter / GPU dashboard
+└── alloy/                   Grafana Alloy 수동 ConfigMap patch 참고용
 ```
 
 ## Kafka — Strimzi `my-kafka-cluster` 사용
@@ -63,7 +65,17 @@ kubectl apply -f redis/
 bash kafka-connect/deploy.sh
 
 # 5. 모니터링
-kubectl apply -f alloy/
+kubectl apply -f gpu-monitoring/nvidia-device-plugin.yml
+kubectl apply -f gpu-monitoring/dcgm-exporter.yml
+
+helm upgrade kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  -n monitoring -f monitoring/values-kube-prometheus-stack.yaml
+
+helm upgrade loki grafana/loki \
+  -n monitoring -f monitoring/values-loki.yaml
+
+helm upgrade alloy grafana/alloy \
+  -n monitoring -f monitoring/values-alloy.yaml
 
 # 6. 앱: 각 서비스 레포 `k8s/` 가 SoT. ArgoCD Application 이 자동 sync.
 #    DB Secret (auth-db-secret, user-db-secret, event-db-secret, reservation-db-secret, payment-db-secret) 은

@@ -1,6 +1,6 @@
 # kube-prometheus-stack values.yaml
 #
-# Helm release: kube-prometheus-stack (chart 82.16.2, app v0.89.0)
+# Helm release: kube-prometheus-stack (chart 84.3.0, app v0.90.1)
 # 설치 ns: monitoring
 #
 # 주요 변경 (2026-04-22):

@@ -1,6 +1,6 @@
 # Loki values.yaml
 #
-# Helm release: loki (chart 6.55.0, app 3.6.7)
+# Helm release: loki (chart 7.0.0, app 3.6.7)
 # 설치 ns: monitoring
 # Mode: SingleBinary (단일 Pod + filesystem storage)
 #
@@ -96,6 +96,11 @@ gateway:
     limits:
       memory: 128Mi
       cpu: 100m
+
+lokiCanary:
+  nodeSelector:
+    eks.amazonaws.com/nodegroup: skala3-cloud1-team8-ng
+  tolerations: []
 
 # 기본 비활성 컴포넌트 (SingleBinary 모드)
 resultsCache:
