@@ -16,8 +16,8 @@ spec:
     # === Database connection ===
     database.hostname: reservation-db.kafka
     database.port: 3306
-    database.user: opentraum
-    database.password: "opentraum123!"
+    database.user: ${secrets:kafka/reservation-db-secret:mariadb-user}
+    database.password: ${secrets:kafka/reservation-db-secret:mariadb-password}
     database.server.id: 184060
     database.server.name: reservation
 
