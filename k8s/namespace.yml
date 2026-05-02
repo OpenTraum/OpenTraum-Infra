@@ -29,3 +29,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: opentraum
     app.kubernetes.io/component: cache
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: load-test
+  labels:
+    app.kubernetes.io/part-of: opentraum
+    app.kubernetes.io/component: load-test

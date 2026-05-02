@@ -17,7 +17,7 @@ usage() {
 OpenTraum Gateway HPA Load Test
 
 Supported runner:
-  scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh
+  chaos/load-test/scripts/gateway-hpa-k8s-wrk2-runner.sh
 
 This compatibility entrypoint delegates to the Kubernetes wrk2 Job runner.
 Workstation generators and legacy MODE values (wrk, wrk-parallel, wrk2,
@@ -28,16 +28,16 @@ Examples:
   DRY_RUN=1 \
   TOTAL_RATE=10000 \
   PODS=17 \
-  scripts/load-test/gateway-hpa-load-test.sh
+  chaos/load-test/scripts/gateway-hpa-load-test.sh
 
   # Execute after reviewing the manifest and node separation.
   DRY_RUN=0 \
   TOTAL_RATE=10000 \
   PODS=17 \
-  scripts/load-test/gateway-hpa-load-test.sh
+  chaos/load-test/scripts/gateway-hpa-load-test.sh
 
 Optional variables are the same as gateway-hpa-k8s-wrk2-runner.sh, including:
-  LOADTEST_NAMESPACE=opentraum-loadtest
+  LOADTEST_NAMESPACE=load-test
   TARGET_NAMESPACE=opentraum
   TARGET_URL=http://gateway.opentraum.svc.cluster.local:8080/api/__loadtest__
   IMAGE=cylab/wrk2:latest
