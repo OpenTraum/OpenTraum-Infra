@@ -81,8 +81,9 @@ alertmanager:
         cpu: 100m
 
 # ===== Grafana =====
+# NOTE: grafana.adminPassword is provided at install time via -f values-kube-prometheus-stack-secret.yaml.
+# See values-kube-prometheus-stack-secret.example.yaml for the expected structure.
 grafana:
-  adminPassword: admin
   ingress:
     enabled: true
     ingressClassName: nginx

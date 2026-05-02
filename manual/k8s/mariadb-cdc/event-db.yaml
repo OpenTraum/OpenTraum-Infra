@@ -41,22 +41,7 @@ data:
       ON *.* TO 'opentraum'@'%';
 
     FLUSH PRIVILEGES;
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: event-db-secret
-  namespace: kafka
-  labels:
-    app: event-db
-    app.kubernetes.io/part-of: opentraum
-    app.kubernetes.io/component: database
-type: Opaque
-stringData:
-  mariadb-root-password: "opentraum123!"
-  mariadb-password: "opentraum123!"
-  mariadb-user: "opentraum"
-  mariadb-database: "event"
+# event-db-secret (Secret) is provisioned separately - see event-db-secret.example.yml
 ---
 apiVersion: v1
 kind: Service

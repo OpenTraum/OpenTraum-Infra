@@ -247,8 +247,8 @@ flowchart LR
 
 ### 출처
 - 라이브 클러스터: `kubectl` 결과(확인 시점 2026-04-28 15:10 KST).
-- 매니페스트: 본 레포 [k8s/](../k8s/), [chaos/](../chaos/), 그리고 각 서비스 레포의 `k8s/deployment.yml`.
-- Helm release 값: 본 레포 [k8s/monitoring/](../k8s/monitoring/), [k8s/mariadb/](../k8s/mariadb/).
+- 매니페스트: 본 레포 [manual/k8s/](../manual/k8s/), [chaos/](../chaos/), 그리고 각 서비스 레포의 `k8s/deployment.yml`.
+- Helm release 값: 본 레포 [manual/k8s/monitoring/](../manual/k8s/monitoring/), [manual/k8s/mariadb/](../manual/k8s/mariadb/).
 - ArgoCD Application: 라이브 `kubectl get application -n argocd`.
 
 ### 갱신 정책

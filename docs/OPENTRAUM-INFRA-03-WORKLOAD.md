@@ -35,7 +35,7 @@
 - reservation: [OpenTraum-reservation-service](https://github.com/OpenTraum/OpenTraum-reservation-service/blob/main/k8s/deployment.yml)
 - payment: [OpenTraum-payment-service](https://github.com/OpenTraum/OpenTraum-payment-service/blob/main/k8s/deployment.yml)
 - web: [OpenTraum-Web](https://github.com/OpenTraum/OpenTraum-Web/blob/main/k8s/deployment.yml)
-- 공용 ConfigMap: `../k8s/configmap.yml`
+- 공용 ConfigMap: `../manual/k8s/configmap.yml`
 
 ---
 

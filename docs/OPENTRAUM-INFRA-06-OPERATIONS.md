@@ -21,7 +21,7 @@
 
 ## 1. 개요
 
-본 장은 OpenTraum EKS 클러스터의 운영 안정성 정책과 그 정책이 보장하는 정량 성과, 그리고 정책이 실제로 작동하는지 카오스 실험으로 검증한 결과를 정리합니다. 정보는 두 가지 출처에서만 가져왔습니다. 첫째는 라이브 클러스터 상태(확인 시점 2026-04-28 15:10 KST)이고, 둘째는 `OpenTraum-Infra/k8s/` 아래의 매니페스트 원본과 `OpenTraum-Infra/chaos/` 아래의 Chaos Toolkit 실험 정의 및 저널입니다. 양쪽이 일치하는 사실만 본문에 기재했습니다.
+본 장은 OpenTraum EKS 클러스터의 운영 안정성 정책과 그 정책이 보장하는 정량 성과, 그리고 정책이 실제로 작동하는지 카오스 실험으로 검증한 결과를 정리합니다. 정보는 두 가지 출처에서만 가져왔습니다. 첫째는 라이브 클러스터 상태(확인 시점 2026-04-28 15:10 KST)이고, 둘째는 `OpenTraum-Infra/manual/k8s/` 아래의 매니페스트 원본과 `OpenTraum-Infra/chaos/` 아래의 Chaos Toolkit 실험 정의 및 저널입니다. 양쪽이 일치하는 사실만 본문에 기재했습니다.
 
 다루는 정책은 6가지입니다. 우선순위 기반 자원 배분(PriorityClass), 자발적 중단 한도(PodDisruptionBudget), 시작과 종료의 라이프사이클(Probe + terminationGracePeriod), 분산 배치(Affinity + TopologySpread), 이벤트 기반 오토스케일링(KEDA), 그리고 ReplicaSet 정리와 이미지 정책입니다. 마지막으로 이 6가지가 실제 장애 시 의도대로 동작함을 입증하기 위해 gateway Pod 강제 삭제 실험을 수행했고, 결과 저널(`chaos/journal.json`)이 40초 내 복구를 기록했습니다.
 
@@ -31,7 +31,7 @@
 
 ## 2. PriorityClass
 
-라이브 클러스터에는 OpenTraum 도메인 전용 PriorityClass 3종이 등록되어 있습니다. 매니페스트 출처는 [../k8s/priorityclass.yml] 한 파일이며, `globalDefault: false`로 설정되어 라벨이 없는 Pod는 클러스터 기본값(0)을 사용합니다.
+라이브 클러스터에는 OpenTraum 도메인 전용 PriorityClass 3종이 등록되어 있습니다. 매니페스트 출처는 [../manual/k8s/priorityclass.yml] 한 파일이며, `globalDefault: false`로 설정되어 라벨이 없는 Pod는 클러스터 기본값(0)을 사용합니다.
 
 | name | value | preemptionPolicy | 적용 워크로드 |
 |---|---|---|---|
@@ -49,7 +49,7 @@
 
 ## 3. PodDisruptionBudget
 
-라이브 클러스터에 등록된 OpenTraum 도메인의 PDB는 4건입니다. 매니페스트 출처는 [../k8s/pdb.yml]입니다.
+라이브 클러스터에 등록된 OpenTraum 도메인의 PDB는 4건입니다. 매니페스트 출처는 [../manual/k8s/pdb.yml]입니다.
 
 | name | ns | maxUnavailable | selector |
 |---|---|---|---|
