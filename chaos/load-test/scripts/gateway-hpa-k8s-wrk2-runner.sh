@@ -10,7 +10,7 @@
 set -Eeuo pipefail
 
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
-LOADTEST_NAMESPACE="${LOADTEST_NAMESPACE:-opentraum-loadtest}"
+LOADTEST_NAMESPACE="${LOADTEST_NAMESPACE:-load-test}"
 TARGET_NAMESPACE="${TARGET_NAMESPACE:-opentraum}"
 GATEWAY_DEPLOYMENT="${GATEWAY_DEPLOYMENT:-gateway}"
 GATEWAY_HPA="${GATEWAY_HPA:-gateway-hpa}"
@@ -51,23 +51,23 @@ Default behavior is DRY_RUN=1. It writes the Job manifest and command plan only.
 
 Examples:
   # Plan a 17-pod, 10,000 RPS run against the in-cluster Gateway service.
-  scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh
+  chaos/load-test/scripts/gateway-hpa-k8s-wrk2-runner.sh
 
   # Execute after checking the manifest and cluster/node separation.
   DRY_RUN=0 \
   TOTAL_RATE=10000 \
   PODS=17 \
-  scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh
+  chaos/load-test/scripts/gateway-hpa-k8s-wrk2-runner.sh
 
   # Use an explicitly supplied target while keeping it out of git.
   DRY_RUN=0 \
   TARGET_URL="http://gateway.opentraum.svc.cluster.local:8080/api/__loadtest__" \
   TOTAL_RATE=5000 \
   PODS=10 \
-  scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh
+  chaos/load-test/scripts/gateway-hpa-k8s-wrk2-runner.sh
 
 Optional:
-  LOADTEST_NAMESPACE=opentraum-loadtest
+  LOADTEST_NAMESPACE=load-test
   TARGET_NAMESPACE=opentraum
   GATEWAY_LABEL_SELECTOR=app=gateway
   TARGET_URL=http://gateway.opentraum.svc.cluster.local:8080/api/__loadtest__

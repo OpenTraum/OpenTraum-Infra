@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT="${SCRIPT:-scripts/load-test/gateway-hpa-load-test.sh}"
-K8S_SCRIPT="scripts/load-test/gateway-hpa-k8s-wrk2-runner.sh"
+SCRIPT="${SCRIPT:-chaos/load-test/scripts/gateway-hpa-load-test.sh}"
+K8S_SCRIPT="chaos/load-test/scripts/gateway-hpa-k8s-wrk2-runner.sh"
 TMP_ROOT="${TMPDIR:-/tmp}/gateway-hpa-load-test-tests.$$"
 BIN_DIR="${TMP_ROOT}/bin"
 OUT_DIR="${TMP_ROOT}/out"
