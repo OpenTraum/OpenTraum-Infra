@@ -10,4 +10,5 @@ helm upgrade --install opentraum-mariadb bitnami/mariadb \
   --namespace ${NAMESPACE} \
   --create-namespace \
   --version 20.5.5 \
-  -f custom-values.yaml
+  -f custom-values.yaml \
+  -f custom-values-secret.yaml

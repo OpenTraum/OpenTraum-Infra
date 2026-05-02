@@ -34,12 +34,12 @@
 
 - 라이브 클러스터 상태: 2026-04-29 기준 `kubectl get pod/svc/pvc -n monitoring` 및 `helm list -n monitoring` 결과.
 - 매니페스트와 values 파일:
-  - `k8s/monitoring/values-kube-prometheus-stack.yaml`
-  - `k8s/monitoring/values-loki.yaml`
-  - `k8s/monitoring/values-alloy.yaml`
-  - `k8s/monitoring/README.md`
-  - `k8s/gpu-monitoring/nvidia-device-plugin.yml`
-  - `k8s/gpu-monitoring/dcgm-exporter.yml`
+  - `manual/k8s/monitoring/values-kube-prometheus-stack.yaml`
+  - `manual/k8s/monitoring/values-loki.yaml`
+  - `manual/k8s/monitoring/values-alloy.yaml`
+  - `manual/k8s/monitoring/README.md`
+  - `manual/k8s/gpu-monitoring/nvidia-device-plugin.yml`
+  - `manual/k8s/gpu-monitoring/dcgm-exporter.yml`
 
 ---
 
@@ -222,7 +222,7 @@ PVC 라이브 인벤토리는 다음과 같습니다.
 
 DaemonSet 인 alloy 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에서만 기동됩니다. GPU 노드는 `nvidia-device-plugin` 과 `dcgm-exporter` 가 담당하며, 일반 로그 수집 DaemonSet 이 GPU 노드의 Pod slot 을 사용하지 않도록 분리합니다. `loki-canary` 는 실습용 검증 컴포넌트라 운영 배포에서는 비활성화합니다.
 
-GPU monitoring 리소스는 Helm release 에 포함하지 않고 `k8s/gpu-monitoring/` raw manifest 로 관리합니다. `dcgm-exporter.yml` 에 DaemonSet, Service, ServiceMonitor 가 함께 들어 있고, `grafana-dashboard.yml` 은 `grafana_dashboard: "1"` 라벨 ConfigMap 으로 Grafana sidecar 가 자동 등록합니다. 따라서 GPU 대시보드(`uid: opentraum-gpu`)를 복구할 때는 두 manifest 를 다시 적용하면 됩니다.
+GPU monitoring 리소스는 Helm release 에 포함하지 않고 `manual/k8s/gpu-monitoring/` raw manifest 로 관리합니다. `dcgm-exporter.yml` 에 DaemonSet, Service, ServiceMonitor 가 함께 들어 있고, `grafana-dashboard.yml` 은 `grafana_dashboard: "1"` 라벨 ConfigMap 으로 Grafana sidecar 가 자동 등록합니다. 따라서 GPU 대시보드(`uid: opentraum-gpu`)를 복구할 때는 두 manifest 를 다시 적용하면 됩니다.
 
 ---
 
@@ -308,7 +308,7 @@ flowchart LR
 
 `values-kube-prometheus-stack.yaml` 의 `grafana` 섹션은 다음과 같습니다.
 
-- **adminPassword**: values 파일에 평문으로 존재하지만 본문 표기는 생략합니다. 운영 시 Sealed Secret 이나 외부 비밀 관리로 이전하는 것이 안전합니다.
+- **adminPassword**: 본 values 파일에는 두지 않고 install 시 `-f values-kube-prometheus-stack-secret.yaml` 로 주입합니다. 해당 secret values 파일은 `.gitignore` 처리되며, 구조는 `values-kube-prometheus-stack-secret.example.yaml` 을 참고합니다. 운영은 Sealed Secret / 외부 비밀 관리로 이전하는 것이 권장됩니다.
 - **ingress**: `enabled=true`, `ingressClassName=nginx`. NGINX Ingress 로 노출됩니다.
 - **sidecar.datasources.enabled**: `true`. Grafana Pod 옆에 sidecar 컨테이너가 떠서 ConfigMap 을 감시합니다.
 - **additionalDataSources**: Loki 한 건이 인라인으로 등록됩니다. `type=loki`, `url=http://loki.monitoring.svc.cluster.local:3100`, `isDefault=false`.

@@ -11,11 +11,11 @@ image:
   pullPolicy: IfNotPresent
 
 ## MariaDB 인증 설정
+## NOTE: rootPassword / password are provided at install time via -f custom-values-secret.yaml.
+## See custom-values-secret.example.yaml for the expected structure.
 auth:
-  rootPassword: "opentraum123!"
   database: "opentraum_auth"
   username: "opentraum"
-  password: "opentraum123!"
 
 ## Primary 인스턴스
 primary:

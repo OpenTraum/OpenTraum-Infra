@@ -76,7 +76,7 @@ helm upgrade alloy grafana/alloy \
 
 ### GPU monitoring 관리 기준
 
-- `dcgm-exporter`, ServiceMonitor, GPU Grafana dashboard 는 `k8s/gpu-monitoring/` raw manifest 로 관리
+- `dcgm-exporter`, ServiceMonitor, GPU Grafana dashboard 는 `manual/k8s/gpu-monitoring/` raw manifest 로 관리
 - Helm release(`kube-prometheus-stack`, `loki`, `alloy`) 는 core monitoring 구성만 관리
 - GPU dashboard 는 Grafana sidecar 가 `grafana_dashboard: "1"` 라벨 ConfigMap 을 watch 해서 자동 등록
 

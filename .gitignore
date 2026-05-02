@@ -39,10 +39,21 @@ docker-compose.override.yml
 # =========================
 # Kubernetes Secrets
 # =========================
-k8s/*-secret.yml
-k8s/**/secret.yml
-k8s/secrets/
-k8s/secrets.yml
+manual/k8s/**/*-secret.yml
+manual/k8s/**/*-secret.yaml
+manual/k8s/**/secret.yml
+manual/k8s/**/secret.yaml
+manual/k8s/**/secrets/
+manual/k8s/**/secrets.yml
+!manual/k8s/**/*-secret.example.yml
+!manual/k8s/**/*-secret.example.yaml
+# Helm values that carry credentials (kept out of Git)
+manual/k8s/**/*-values-secret.yaml
+manual/k8s/**/custom-values-secret.yaml
+manual/k8s/**/values-*-secret.yaml
+!manual/k8s/**/*-values-secret.example.yaml
+!manual/k8s/**/custom-values-secret.example.yaml
+!manual/k8s/**/values-*-secret.example.yaml
 
 # =========================
 # Terraform (future)

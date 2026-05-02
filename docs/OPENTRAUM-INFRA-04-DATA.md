@@ -376,7 +376,7 @@ flowchart LR
 
 ### 5.1 KafkaConnect CR 핵심
 
-매니페스트: [../k8s/kafka-connect/kafka-connect.yaml](../k8s/kafka-connect/kafka-connect.yaml)
+매니페스트: [../manual/k8s/kafka-connect/kafka-connect.yaml](../manual/k8s/kafka-connect/kafka-connect.yaml)
 
 | 항목 | 값 |
 |---|---|
@@ -400,7 +400,7 @@ flowchart LR
 
 Outbox EventRouter SMT(`io.debezium.transforms.outbox.EventRouter`) 는 Debezium MariaDB Connector tar 에 함께 포함되어 있어 별도 plugin 으로 추가하지 않습니다.
 
-`config.providers: secrets` + `KubernetesSecretConfigProvider` 가 설정되어 있어 KafkaConnector CR 의 DB 접속 사용자명/비밀번호를 `${secrets:kafka/<secret-name>:<key>}` 형태로 참조합니다. Connect Pod 의 ServiceAccount(`opentraum-debezium-connect-connect`) 는 [../k8s/kafka-connect/secret-rbac.yaml](../k8s/kafka-connect/secret-rbac.yaml) 의 Role/RoleBinding 으로 CDC DB Secret 을 조회합니다.
+`config.providers: secrets` + `KubernetesSecretConfigProvider` 가 설정되어 있어 KafkaConnector CR 의 DB 접속 사용자명/비밀번호를 `${secrets:kafka/<secret-name>:<key>}` 형태로 참조합니다. Connect Pod 의 ServiceAccount(`opentraum-debezium-connect-connect`) 는 [../manual/k8s/kafka-connect/secret-rbac.yaml](../manual/k8s/kafka-connect/secret-rbac.yaml) 의 Role/RoleBinding 으로 CDC DB Secret 을 조회합니다.
 
 라이브 KafkaConnect 는 1 replica, ready=True 상태이며 Pod 이름은 `opentraum-debezium-connect-connect-0` 입니다.
 
@@ -408,9 +408,9 @@ Outbox EventRouter SMT(`io.debezium.transforms.outbox.EventRouter`) 는 Debezium
 
 매니페스트:
 
-- [../k8s/kafka-connect/connector-reservation.yaml](../k8s/kafka-connect/connector-reservation.yaml)
-- [../k8s/kafka-connect/connector-payment.yaml](../k8s/kafka-connect/connector-payment.yaml)
-- [../k8s/kafka-connect/connector-event.yaml](../k8s/kafka-connect/connector-event.yaml)
+- [../manual/k8s/kafka-connect/connector-reservation.yaml](../manual/k8s/kafka-connect/connector-reservation.yaml)
+- [../manual/k8s/kafka-connect/connector-payment.yaml](../manual/k8s/kafka-connect/connector-payment.yaml)
+- [../manual/k8s/kafka-connect/connector-event.yaml](../manual/k8s/kafka-connect/connector-event.yaml)
 
 서비스별로 다른 항목만 표로 정리합니다.
 
@@ -500,9 +500,9 @@ flowchart LR
 
 매니페스트:
 
-- [../k8s/mariadb-cdc/reservation-db.yaml](../k8s/mariadb-cdc/reservation-db.yaml)
-- [../k8s/mariadb-cdc/payment-db.yaml](../k8s/mariadb-cdc/payment-db.yaml)
-- [../k8s/mariadb-cdc/event-db.yaml](../k8s/mariadb-cdc/event-db.yaml)
+- [../manual/k8s/mariadb-cdc/reservation-db.yaml](../manual/k8s/mariadb-cdc/reservation-db.yaml)
+- [../manual/k8s/mariadb-cdc/payment-db.yaml](../manual/k8s/mariadb-cdc/payment-db.yaml)
+- [../manual/k8s/mariadb-cdc/event-db.yaml](../manual/k8s/mariadb-cdc/event-db.yaml)
 
 | 항목 | 값 (3개 공통) |
 |---|---|
@@ -692,8 +692,8 @@ flowchart TB
 
 매니페스트:
 
-- [../k8s/redis/deployment.yml](../k8s/redis/deployment.yml)
-- [../k8s/redis/service.yml](../k8s/redis/service.yml)
+- [../manual/k8s/redis/deployment.yml](../manual/k8s/redis/deployment.yml)
+- [../manual/k8s/redis/service.yml](../manual/k8s/redis/service.yml)
 
 | 항목 | 값 |
 |---|---|

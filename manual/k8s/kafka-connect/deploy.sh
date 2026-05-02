@@ -35,6 +35,16 @@ kubectl get ns "${NS}" >/dev/null
 # ---------------------------------------------------------------------------
 # 1) MariaDB 3개 배포
 # ---------------------------------------------------------------------------
+log "MariaDB Secret 배포 (Git 비포함, *-secret.example.yml 참고하여 미리 생성 필요)"
+for db in reservation-db payment-db event-db; do
+  if [[ ! -f "${MDB_DIR}/${db}-secret.yml" ]]; then
+    echo "ERROR: ${MDB_DIR}/${db}-secret.yml 가 없습니다." >&2
+    echo "  ${db}-secret.example.yml 을 복사한 뒤 실제 비밀번호를 채워주세요." >&2
+    exit 1
+  fi
+  kubectl apply -f "${MDB_DIR}/${db}-secret.yml"
+done
+
 log "MariaDB 3개 배포 (reservation-db / payment-db / event-db)"
 kubectl apply -f "${MDB_DIR}/reservation-db.yaml"
 kubectl apply -f "${MDB_DIR}/payment-db.yaml"

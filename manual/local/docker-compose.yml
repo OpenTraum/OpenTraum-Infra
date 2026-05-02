@@ -110,8 +110,8 @@ services:
     container_name: opentraum-web
     restart: unless-stopped
     build:
-      context: ../OpenTraum-Web
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.web
+      context: ../../../OpenTraum-Web
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.web
     ports:
       - "3000:3000"
     depends_on:
@@ -128,8 +128,8 @@ services:
     container_name: opentraum-gateway
     restart: unless-stopped
     build:
-      context: ../OpenTraum-gateway
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
+      context: ../../../OpenTraum-gateway
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.spring
     ports:
       - "8080:8080"
     environment:
@@ -173,8 +173,8 @@ services:
     container_name: opentraum-auth-service
     restart: unless-stopped
     build:
-      context: ../OpenTraum-auth-service
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
+      context: ../../../OpenTraum-auth-service
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.spring
     ports:
       - "8081:8081"
     environment:
@@ -216,8 +216,8 @@ services:
     container_name: opentraum-user-service
     restart: unless-stopped
     build:
-      context: ../OpenTraum-user-service
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
+      context: ../../../OpenTraum-user-service
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.spring
     ports:
       - "8082:8082"
     environment:
@@ -254,8 +254,8 @@ services:
     container_name: opentraum-event-service
     restart: unless-stopped
     build:
-      context: ../OpenTraum-event-service
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
+      context: ../../../OpenTraum-event-service
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.spring
     ports:
       - "8083:8083"
     environment:
@@ -294,8 +294,8 @@ services:
     container_name: opentraum-reservation-service
     restart: unless-stopped
     build:
-      context: ../OpenTraum-reservation-service
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
+      context: ../../../OpenTraum-reservation-service
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.spring
     ports:
       - "8084:8084"
     environment:
@@ -334,8 +334,8 @@ services:
     container_name: opentraum-payment-service
     restart: unless-stopped
     build:
-      context: ../OpenTraum-payment-service
-      dockerfile: ../OpenTraum-Infra/docker/Dockerfile.spring
+      context: ../../../OpenTraum-payment-service
+      dockerfile: ../OpenTraum-Infra/manual/local/docker/Dockerfile.spring
     ports:
       - "8085:8085"
     environment:
