@@ -64,17 +64,17 @@ sequenceDiagram
     participant Node as Worker Node nodePort 32716
     participant ING as ingress-nginx Pod :443
     participant SVC as Service gateway:8080 (ClusterIP)
-    participant POD as gateway Pod (replicas=2)
+    participant POD as gateway Pod (replicas=1)
 
     U->>DNS: A/CNAME 질의 <CLUSTER_NAME>.cloud.skala-ai.com
-    DNS->>U: CNAME -> k8s-ingressn-...elb.ap-northeast-2.amazonaws.com
+    DNS->>U: CNAME -> k8s-ingressn-....elb.ap-northeast-2.amazonaws.com
     U->>NLB: TCP/443 SYN (TLS ClientHello)
     NLB->>Node: target-type=instance, externalTrafficPolicy=Cluster
     Node->>ING: kube-proxy iptables -> ingress-nginx Pod
     ING->>ING: TLS 종단 (opentraum-tls 인증서로 복호화)
     ING->>ING: host=skala3-... + path=/api 룰 매칭
     ING->>SVC: HTTP/1.1 to gateway.opentraum.svc.cluster.local:8080
-    SVC->>POD: Endpoints 중 하나(replicas=2 random)
+    SVC->>POD: Endpoints 중 하나(replicas=1, 단일 Pod)
     POD-->>U: 응답 역경로
 
     %% 색 지정
@@ -91,7 +91,7 @@ sequenceDiagram
 3. NLB(443) 는 L4 부하분산기이므로 TLS 를 풀지 않고 TCP 그대로 워커 노드 NodePort 32716 으로 패스스루합니다. target-type=instance 모드라 NLB 는 노드 자체를 타겟으로 등록합니다.
 4. 워커 노드의 kube-proxy iptables 룰이 NodePort 32716 패킷을 ingress-nginx-controller Pod 의 443 포트로 DNAT 합니다. externalTrafficPolicy=Cluster 라 Pod 가 같은 노드에 있지 않으면 다른 노드로 한 번 더 점프합니다. → 그래서 source IP 는 SNAT 되어 사라집니다.
 5. ingress-nginx Pod 가 TLS 를 종단합니다. 이 시점에 opentraum-tls Secret 의 인증서/키 로 ClientHello 를 처리하고 평문 HTTP 를 얻습니다. 이후 host 헤더(`<CLUSTER_NAME>.cloud.skala-ai.com`) 와 path(`/api`) 를 보고 Ingress 룰에 매칭되는 backend 를 고릅니다.
-6. backend 는 ClusterIP Service `gateway:8080` 이므로, Service 의 Endpoints 중 하나(replicas=2 중 랜덤)로 다시 iptables DNAT 됩니다.
+6. backend 는 ClusterIP Service `gateway:8080` 이므로, Service 의 단일 Endpoint(replicas=1)로 다시 iptables DNAT 됩니다.
 7. gateway Pod 가 응답을 만들어 같은 경로를 거꾸로 타고 사용자에게 돌아갑니다. TLS 는 ingress-nginx 가 다시 암호화해 NLB → 사용자 순서로 돌려보냅니다.
 
 ---
@@ -107,7 +107,7 @@ sequenceDiagram
 | (host 없음 - catch-all) | Grafana | monitoring/kube-prometheus-stack-grafana | X |
 | (host 없음 + path /prometheus) | Prometheus | monitoring/kube-prometheus-stack-prometheus | X |
 
-네 호스트 모두 동일한 NLB DNS(`k8s-ingressn-<HASH>elb.ap-northeast-2.amazonaws.com`) 로 CNAME 됩니다. → 그래서 NLB 는 호스트 헤더만 보고 ingress-nginx 가 분기하는 구조입니다(ingress-nginx 는 host 가 빈 룰을 catch-all 로 처리). Grafana 와 Prometheus 는 host 가 없는 룰이라, 다른 host 룰에 매칭되지 않은 모든 요청을 받게 됩니다. 운영 환경이라면 명시적 host 부여를 권장합니다.
+네 호스트 모두 동일한 NLB DNS(`k8s-ingressn-<HASH>.elb.ap-northeast-2.amazonaws.com`) 로 CNAME 됩니다. → 그래서 NLB 는 호스트 헤더만 보고 ingress-nginx 가 분기하는 구조입니다(ingress-nginx 는 host 가 빈 룰을 catch-all 로 처리). Grafana 와 Prometheus 는 host 가 없는 룰이라, 다른 host 룰에 매칭되지 않은 모든 요청을 받게 됩니다. 운영 환경이라면 명시적 host 부여를 권장합니다.
 
 ---
 
@@ -285,9 +285,9 @@ Headless Service 는 클라이언트가 Pod 인스턴스 각각을 직접 식별
 
 | Service | ns | LB 종류 | EXTERNAL hostname (요약) | Port |
 |---|---|---|---|---|
-| ingress-nginx-controller | ingress-nginx | NLB | k8s-ingressn-<HASH>elb.ap-northeast-2.amazonaws.com | 80, 443 |
-| my-kafka-cluster-kafka-external-bootstrap | kafka | NLB | k8s-kafka-mykafkac-<HASH>elb.ap-northeast-2.amazonaws.com | 9094 |
-| my-kafka-cluster-kafka-pool-0 | kafka | NLB | k8s-kafka-mykafkac-<HASH2>elb.ap-northeast-2.amazonaws.com | 9094 |
+| ingress-nginx-controller | ingress-nginx | NLB | k8s-ingressn-<HASH>.elb.ap-northeast-2.amazonaws.com | 80, 443 |
+| my-kafka-cluster-kafka-external-bootstrap | kafka | NLB | k8s-kafka-mykafkac-<HASH>.elb.ap-northeast-2.amazonaws.com | 9094 |
+| my-kafka-cluster-kafka-pool-0 | kafka | NLB | k8s-kafka-mykafkac-<HASH2>.elb.ap-northeast-2.amazonaws.com | 9094 |
 
 ingress-nginx 의 NLB 는 본 문서에서 다루는 진입점이고, Kafka 외부 리스너 NLB 는 [04 DATA](OPENTRAUM-INFRA-04-DATA.md) 에서 별도로 다룹니다(외부 producer/consumer 가 broker 별 SNI 로 직접 붙기 위함).
 

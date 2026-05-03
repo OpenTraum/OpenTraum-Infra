@@ -11,6 +11,8 @@ controller:
   nodeSelector:
     eks.amazonaws.com/nodegroup: skala3-cloud1-team8-ng
   tolerations: []
+  # 노드 자원 압박 시 운영 서비스보다 먼저 evict (06 §2)
+  priorityClassName: opentraum-best-effort
 
 alloy:
   configMap:

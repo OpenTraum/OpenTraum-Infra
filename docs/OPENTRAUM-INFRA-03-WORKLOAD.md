@@ -1,195 +1,337 @@
-# OpenTraum 인프라 매뉴얼 - 네임스페이스 / 워크로드 카탈로그
+# OpenTraum 인프라 매뉴얼 - 워크로드 자원 산정
 
-> 작성일: 2026-04-28
+> 작성일: 2026-05-03
 > 시리즈 인덱스: [00 INDEX](OPENTRAUM-INFRA-00-INDEX.md)
 > 이전: [02 NETWORK](OPENTRAUM-INFRA-02-NETWORK.md) · 다음: [04 DATA](OPENTRAUM-INFRA-04-DATA.md)
 
 ## 목차
+
 - [1. 개요](#1-개요)
-- [2. 네임스페이스 카탈로그](#2-네임스페이스-카탈로그)
-- [3. opentraum ns 워크로드 카탈로그](#3-opentraum-ns-워크로드-카탈로그)
-- [4. Gateway 매니페스트 라인 분석](#4-gateway-매니페스트-라인-분석)
-- [5. Gateway 라우팅](#5-gateway-라우팅)
-- [6. Probe 정책 시각화](#6-probe-정책-시각화)
-- [7. Spring 공통 환경](#7-spring-공통-환경)
-- [8. 서비스 비교 표](#8-서비스-비교-표)
-- [9. 컬러 다이어그램 모음](#9-컬러-다이어그램-모음)
-- [10. 정량](#10-정량)
-- [11. 트러블슈팅](#11-트러블슈팅)
-- [12. 진단 명령어](#12-진단-명령어)
+- [1.5 핵심 개념 입문: request, limit, QoS, evict](#15-핵심-개념-입문-request-limit-qos-evict)
+- [2. 클러스터 인벤토리](#2-클러스터-인벤토리)
+- [3. 산정 기준](#3-산정-기준)
+- [4. 서비스별 산정](#4-서비스별-산정)
+- [5. JVM 옵션과 자원 산정의 정합](#5-jvm-옵션과-자원-산정의-정합)
+- [6. opentraum 워크로드 카탈로그 (보조 정보)](#6-opentraum-워크로드-카탈로그-보조-정보)
+- [7. 정량 / 튜닝](#7-정량--튜닝)
+- [8. 트러블슈팅](#8-트러블슈팅)
+- [9. 진단 명령어](#9-진단-명령어)
 
 ---
 
 ## 1. 개요
 
-본 장은 OpenTraum EKS 클러스터의 네임스페이스 14개와 `opentraum` 네임스페이스에 거주하는 애플리케이션 워크로드 7종(gateway, auth-service, user-service, event-service, reservation-service, payment-service, web)을 카탈로그화합니다.
+이 장은 OpenTraum 클러스터 `opentraum` 네임스페이스의 8개 서비스 Pod 자원(CPU/Memory request, limit) 산정을 다룹니다. 범위는 다음과 같습니다.
 
-정보 출처는 두 가지입니다. 첫째, 실제 클러스터 상태(`kubectl get` 결과, 확인 시점 2026-04-28 15:10 KST)이고, 둘째, 각 서비스 리포지토리의 `k8s/deployment.yml` 매니페스트 원본입니다. 양쪽이 일치하는 사실만 본문에 적었고, 서비스마다 매니페스트 정책이 통일되지 않은 부분(Probe 유무, terminationGracePeriod, priorityClass 등)은 비교 표(8장)에서 명시적으로 드러냈습니다.
+- gateway, auth-service, user-service, event-service, payment-service, reservation-service, monitoring-service - Spring Boot 7개 서비스. Liberica JRE 21 기반.
+- web - NGINX 정적 파일 서빙. Spring 과 자원 특성이 달라 별도 산정.
 
-기준 매니페스트 경로는 다음과 같습니다.
+산정의 출발점은 두 가지입니다. 첫째, 일부 t3.medium 노드의 CPU request 점유율이 99% 까지 차서 신규 Pod 스케줄링 여유가 좁았습니다. 둘째, 일부 Spring 서비스는 memory request 가 idle 사용량보다 작아 노드 메모리 압박 시 evict 보호 우선순위가 약화된 상태였습니다. 측정값으로 자원을 다시 잡아 클러스터 점유 여유를 확보하고 메모리 보호 우선순위를 정상화하는 것이 목적입니다.
 
-- gateway: [OpenTraum-gateway](https://github.com/OpenTraum/OpenTraum-gateway/blob/main/k8s/deployment.yml)
-- auth: [OpenTraum-auth-service](https://github.com/OpenTraum/OpenTraum-auth-service/blob/main/k8s/deployment.yml)
-- user: [OpenTraum-user-service](https://github.com/OpenTraum/OpenTraum-user-service/blob/main/k8s/deployment.yml)
-- event: [OpenTraum-event-service](https://github.com/OpenTraum/OpenTraum-event-service/blob/main/k8s/deployment.yml)
-- reservation: [OpenTraum-reservation-service](https://github.com/OpenTraum/OpenTraum-reservation-service/blob/main/k8s/deployment.yml)
-- payment: [OpenTraum-payment-service](https://github.com/OpenTraum/OpenTraum-payment-service/blob/main/k8s/deployment.yml)
-- web: [OpenTraum-Web](https://github.com/OpenTraum/OpenTraum-Web/blob/main/k8s/deployment.yml)
-- 공용 ConfigMap: `../manual/k8s/configmap.yml`
+산정 결과를 한 줄로 요약하면 다음과 같습니다. 8개 서비스 모두 `requests = limits` 로 두어 Guaranteed QoS 클래스로 분류되도록 했고, Spring 7개 서비스는 Memory 512Mi 로 통일, CPU 는 서비스별 startup 시간 실측을 기준으로 200~350m 사이에 차등 산정했습니다. web 은 CPU 50m / Memory 64Mi 로 별도 산정하고 replica 를 2 에서 1 로 축소했습니다.
+
+CPU 를 startup 시간 실측으로 잡은 이유는 평소 사용량(idle) 만 보고 결정하면 기동할 때 잠깐 튀는 CPU burst 를 놓치기 때문입니다. Spring Boot 7개 서비스는 같은 JVM 옵션을 쓰지만 의존성(DB R2DBC, Redis, Kafka) 무게가 달라서 기동 시간이 서비스마다 1.5배까지 벌어집니다. 모든 서비스에 같은 값을 주면 가벼운 쪽에는 과하고 무거운 쪽에는 부족합니다. 그래서 별도 namespace 에 같은 이미지로 Pod 를 띄우고 CPU limit 을 200m → 250m → 300m 식으로 바꿔가며 기동 시간을 직접 재서, startupProbe 의 허용 한도(65초) 안에 충분히 들어오는 값을 서비스별로 채택합니다. 산정 절차는 [3장](#3-산정-기준), 서비스별 측정값은 [4장](#4-서비스별-산정) 에 있습니다.
+
+본문에 적힌 모든 측정값과 자원 정의는 2026-05-03 기준 `kubectl top pod -n opentraum --containers`, `kubectl describe node`, 각 서비스 리포지토리의 `k8s/deployment.yml` 원본을 직접 읽어 옮긴 것입니다. startup 시간 실측은 별도 검증용 namespace `opentraum-test` 에서 동일 이미지·노드·환경으로 진행했습니다. 산정 기준의 외부 근거는 Kubernetes 공식 블로그(2023-11-16), Bellsoft Java on Kubernetes 가이드 두 곳이며 [3장](#3-산정-기준) 에 직접 인용합니다.
 
 ---
 
-## 2. 네임스페이스 카탈로그
+## 1.5 핵심 개념 입문: request, limit, QoS, evict
 
-클러스터에는 총 14개의 네임스페이스가 존재합니다. 시스템 4종(`default`, `kube-node-lease`, `kube-public`, `kube-system`)을 제외하면 플랫폼 5종(`argocd`, `cert-manager`, `ingress-nginx`, `monitoring`, `keda`), 데이터 3종(`mariadb`, `kafka`, `redis`), 애플리케이션 1종(`opentraum`), 그리고 비어 있는 `default`로 구분됩니다.
+본 문서가 결정하는 값은 모두 Pod 자원의 request 와 limit 두 숫자입니다. 이 두 값이 얼마인지에 따라 Pod 의 QoS 클래스가 정해지고, 노드 자원이 부족할 때 누가 먼저 강제 종료되는지가 결정됩니다. 2장 이후의 표를 읽기 전에 이 절에서는 네 개념(request, limit, QoS, evict) 의 관계부터 정리합니다.
 
-| name | age | 거주 워크로드 종류 |
+### 1.5.1 request 와 limit 이 둘 다 필요한 이유
+
+Pod 가 컨테이너로 정의될 때 자원은 `requests` 와 `limits` 두 값으로 표현됩니다. 두 값이 가리키는 대상은 다릅니다.
+
+- **request 는 스케줄러가 보는 값입니다**. kube-scheduler 는 Pod 를 어느 노드에 배치할지 결정할 때 노드의 allocatable 자원에서 이미 배치된 Pod 들의 request 합을 뺀 여유를 봅니다. request 는 "이만큼은 무조건 자리를 잡아두고 시작하겠다" 는 예약값입니다.
+- **limit 은 컨테이너 런타임이 보는 값입니다**. kubelet 이 Linux cgroup 에 limit 값을 설정해, 컨테이너가 그 이상 CPU 를 쓰려 하면 throttle 되고 Memory 를 그 이상 쓰려 하면 OOMKill 됩니다. limit 은 "이 이상은 절대 못 쓴다" 는 상한값입니다.
+
+두 값을 다르게 둘 수도 있습니다. request 50m / limit 200m 으로 두면 평소에는 50m 만 예약하지만 여유가 있을 때는 200m 까지 burst 가능합니다. 이를 over-commit 이라 부르며 노드 효율은 좋아지지만 burst 가 동시에 일어났을 때 throttle 또는 OOMKill 위험이 생깁니다.
+
+### 1.5.2 QoS 클래스: Guaranteed / Burstable / BestEffort
+
+kubelet 은 Pod 의 request 와 limit 조합을 보고 QoS 클래스를 자동으로 분류합니다. 분류 규칙은 다음과 같습니다.
+
+| 조건 | QoS 클래스 |
+|---|---|
+| 모든 컨테이너에서 `requests = limits` (CPU 와 Memory 둘 다) | Guaranteed |
+| 일부 컨테이너에서 request 만 있고 limit 없음, 또는 request < limit | Burstable |
+| request 와 limit 모두 미설정 | BestEffort |
+
+QoS 클래스가 중요한 이유는 노드 메모리가 부족해 어떤 Pod 를 강제 종료(evict) 해야 할 때 이 등급이 우선순위를 정하기 때문입니다.
+
+### 1.5.3 evict: 노드 메모리 압박 시 누가 먼저 죽는가
+
+kubelet 은 노드 메모리가 일정 임계치(`evictionHard.memory.available`) 아래로 떨어지면 Pod 를 강제 종료합니다. 종료 우선순위는 다음 순서입니다.
+
+1. **BestEffort Pod 먼저** (request 도 limit 도 없는 Pod 가 가장 보호 약함)
+2. **Burstable Pod 중 request 대비 실제 사용량이 큰 순서**
+3. **Guaranteed Pod 마지막** (가장 늦게 evict)
+
+같은 노드에 Guaranteed Pod 와 Burstable Pod 가 같이 있으면 Burstable 이 먼저 죽습니다. → 그래서 비즈니스 핵심 경로의 Pod 는 Guaranteed 로 두는 것이 일반적인 패턴입니다.
+
+본 산정에서 8개 서비스를 모두 Guaranteed 로 통일한 의도가 여기 있습니다. 노드 메모리 압박이 와도 8개 서비스 모두 마지막 순서까지 보호되며, 같은 노드에 떠 있을 수 있는 다른 ns 의 Burstable Pod(예: Prometheus, Grafana 같은 모니터링 인프라) 가 먼저 evict 되어 메모리가 회수됩니다.
+
+### 1.5.4 CPU 와 Memory 의 동작 차이
+
+같은 limit 이라도 CPU 와 Memory 는 한도 초과 시 동작이 다릅니다.
+
+- **CPU limit 초과 → throttle**: cgroup 이 그 시간 슬라이스에서 CPU 를 잠시 회수합니다. Pod 는 죽지 않고 응답 지연만 늘어납니다. 회복 가능한 상태입니다.
+- **Memory limit 초과 → OOMKill**: 즉시 컨테이너가 SIGKILL 로 강제 종료됩니다. graceful shutdown 도 없고 in-flight 요청이 모두 끊깁니다. 회복 불가능한 종료입니다.
+
+→ 그래서 Memory 는 CPU 보다 보수적으로 잡아야 합니다. CPU 는 limit 을 좀 빡빡하게 두어도 throttle 만 발생하지만, Memory 는 부족하면 즉시 OOMKill 됩니다. 본 산정에서 측정 idle 의 30% 헤드룸을 둔 이유가 여기 있습니다.
+
+### 1.5.5 request = limit 이 만드는 트레이드오프
+
+`request = limit` 으로 두면 두 가지가 동시에 발생합니다.
+
+- **장점**: Pod 가 Guaranteed QoS 로 분류되어 가장 늦게 evict 되고, 같은 컨테이너의 자원 사용량이 측정 시점마다 일정해 모니터링과 capacity planning 이 단순해집니다.
+- **단점**: burst 가 불가능합니다. 일시적으로 request 보다 더 많은 CPU 를 쓰고 싶어도 cgroup 이 limit 에서 throttle 합니다. 노드 over-commit 도 사라져 클러스터 자원 효율이 떨어집니다.
+
+본 산정은 OpenTraum 워크로드 특성상 idle 사용량이 startup 시점 채택값의 1~5% 수준이라 burst 헤드룸이 거의 의미가 없고, 오히려 Guaranteed QoS 의 evict 보호가 더 중요하다고 판단해 `request = limit` 을 선택했습니다. 근거는 [3장](#3-산정-기준) 에서 다룹니다.
+
+이상으로 자원 산정 의사결정에 필요한 기본기는 정리됐고, 2장부터는 실제 클러스터 인벤토리와 측정값으로 들어갑니다.
+
+---
+
+## 2. 클러스터 인벤토리
+
+본 산정의 대상이 되는 일반 노드 자원과 재산정 전 네임스페이스별 점유 상태를 정리합니다.
+
+### 2.1 일반 노드 인벤토리
+
+`opentraum` 네임스페이스 워크로드는 모두 일반 노드그룹(`skala3-cloud1-team8-ng`, t3.medium x 7대) 에 배치됩니다. GPU 노드그룹(g5.xlarge x 2대) 과 그 위에 떠 있는 GPU 워크로드(nemotron-vllm, flux-image, gpu-monitoring) 는 nodegroup taint(`nodegroup-type=gpu:NoSchedule`) 로 격리되어 본 산정 범위에서 제외됩니다.
+
+일반 노드 한 대의 allocatable 과 7대 합계는 다음과 같습니다.
+
+| 항목 | 값 |
+|---|---|
+| 노드당 CPU allocatable | 1930m |
+| 노드당 Memory allocatable | 3292Mi (약 3.2 GiB) |
+| 7대 합계 CPU | 13510m |
+| 7대 합계 Memory | 23044Mi (약 22.5 GiB) |
+
+t3.medium 의 vCPU 2 / Memory 4 GiB 중 일부가 EKS 의 system-reserved, kube-reserved, eviction threshold 로 빠져 allocatable 이 위 값으로 줄어듭니다.
+
+### 2.2 네임스페이스별 점유 (재산정 전)
+
+재산정 전 일반 노드 점유 현황입니다. CPU / Memory 모두 request 합계 기준입니다.
+
+| Namespace | CPU req | Memory req |
 |---|---|---|
-| argocd | 24d | ArgoCD GitOps 컨트롤러 |
-| cert-manager | 25d | 인증서 자동화 |
-| default | 25d | 미사용(빈 ns) |
-| ingress-nginx | 25d | NLB 진입 |
-| kafka | 11d | Strimzi Kafka + Connect + 3 CDC MariaDB |
-| keda | 11d | 이벤트 기반 오토스케일러(현재 ScaledObject 0개) |
-| kube-node-lease | 25d | 노드 heartbeat (시스템) |
-| kube-public | 25d | 시스템 공개 정보 |
-| kube-system | 25d | EKS 핵심 컴포넌트 |
-| mariadb | 11d | 통합 MariaDB(auth/user) |
-| monitoring | 25d | Prometheus / Grafana / Loki / Alloy |
-| opentraum | 20h | 6 백엔드 + web (앱) |
-| redis | 11d | 분산 락 / 세션 캐시 |
+| opentraum (AI 제외) | 2700m | 2816Mi |
+| kafka | 1700m | 3456Mi |
+| kube-system | 1500m | 1428Mi |
+| monitoring | 300m | 1452Mi |
+| mariadb | 300m | 576Mi |
+| ingress-nginx | 100m | 90Mi |
+| redis | 50m | 128Mi |
+| argocd, cert-manager | 0m | 0Mi |
+| 합계 | 6650m | 9946Mi |
 
-OpenTraum 애플리케이션 도메인에 속하는 네임스페이스에는 `app.kubernetes.io/part-of: opentraum` 라벨이 부여되어 있습니다. 이 라벨은 `opentraum`(앱 본체), `mariadb`(데이터), `kafka`(메시징 + CDC), `redis`(캐시) 네 곳에 공통 적용되어 도메인 경계를 표시합니다. 그리고 각 데이터 ns에는 보조적으로 `app.kubernetes.io/component` 라벨이 붙습니다. `mariadb`는 `component=database`, `kafka`는 `component=messaging`, `redis`는 `component=cache`로 구분되며, 이 라벨 체계 덕분에 NetworkPolicy의 `namespaceSelector`나 Prometheus의 `namespace` 라벨 조회에서 부하별 필터링이 가능합니다.
-
-`keda` 네임스페이스는 11일 전 설치되었지만 현재 ScaledObject 0개로 운영 중입니다. KEDA 오퍼레이터만 상주한 상태이며, 실제 오토스케일링 트리거 대상은 [06 OPERATIONS]에서 다룹니다. `default` 네임스페이스는 의도적으로 비워 두어 잘못된 배포가 격리되도록 했습니다.
+전체 점유율은 CPU 49.2% (6650m / 13510m) / Memory 43.2% (9946Mi / 23044Mi) 로 평균은 여유가 있습니다 (재산정 시점 기준 keda 네임스페이스는 별도 정리로 삭제되어 본 표에서 제외). 그러나 개별 노드 점유는 99% 까지 편중되어 있어, 신규 Pod 가 들어올 빈 자리를 찾기 어려운 상태였습니다. 본 산정의 직접 동기는 이 편중을 완화하는 것이며, 노드 분포 불균형 자체의 해소(podAntiAffinity, topologySpreadConstraints, descheduler) 는 별도 작업입니다.
 
 ---
 
-## 3. opentraum ns 워크로드 카탈로그
+## 3. 산정 기준
 
-`opentraum` 네임스페이스에는 게이트웨이 1종, Spring 백엔드 5종, 정적 웹 1종이 거주합니다. 라이브 Pod 9개와 Service 7개의 매핑은 다음과 같습니다.
+본 산정은 다음 네 가지 원칙을 따릅니다. 각 원칙은 외부 출처를 직접 인용하거나 직접 측정으로 근거를 확보합니다.
 
-### 3.1 라이브 Pod (kubectl 출력 기준)
+### 3.1 CPU 는 기동 시간을 직접 재서 서비스별로 잡는다
 
-| name | replicas | image (Harbor 경로) | 거주 노드 | age |
-|---|---|---|---|---|
-| auth-service-76c4c96bb5-mtm2k | 1 | <HARBOR_REGISTRY>/<HARBOR_PROJECT>/opentraum-auth-service | ip-<NODE_4> | 118m |
-| event-service-6f95865866-xpq4s | 1 | opentraum-event-service | ip-<NODE_7> | 52m |
-| gateway-568fbbb5d4-4km96 | 2 | opentraum-gateway | ip-<NODE_5> | 4h59m |
-| gateway-568fbbb5d4-mtf9r | (위 2 중 1) | opentraum-gateway | ip-<NODE_2> | 4h59m |
-| payment-service-6569ff645d-ft72w | 1 | opentraum-payment-service | ip-<NODE_3> | 52m |
-| reservation-service-54bf7c7477-ppcdh | 1 | opentraum-reservation-service | ip-<NODE_7> | 52m |
-| user-service-5d9d945986-k2r2r | 1 | opentraum-user-service | ip-<NODE_4> | 18h (RESTART 5) |
-| web-548dbdd774-chcjb | 2 | opentraum-web | ip-<NODE_2> | 60m |
-| web-548dbdd774-jzbp6 | (위 2 중 1) | opentraum-web | ip-<NODE_6> | 60m |
+`kubectl top pod -n opentraum --containers` 로 잰 평소(idle) CPU 사용량은 서비스마다 2~9m 입니다. 이 값을 그대로 request 로 두면 기동할 때 잠깐 필요한 CPU 를 못 받아 기동이 늦어지고, startupProbe 가 정한 한도(65초) 안에 기동을 마치지 못해 컨테이너가 죽고 다시 뜨기를 반복합니다.
 
-gateway 두 Pod는 서로 다른 노드(`ip-<NODE_5>`, `ip-<NODE_2>`)에 분산되어 있습니다. 매니페스트에 `topologySpreadConstraints`가 hostname 키로 적용된 결과이며, 한 워커 노드 장애가 즉시 진입 단절로 이어지지 않도록 보호합니다. web 두 Pod도 마찬가지로 `ip-<NODE_2>`과 `ip-<NODE_6>`에 분산되었습니다. 반면 reservation과 event는 동일 노드 `ip-<NODE_7>`에 함께 떠 있는데, 이는 reservation 매니페스트에 정의된 podAffinity가 reservation/payment/event를 같은 노드로 끌어 모으는 선호(weight 80)를 갖고 있기 때문입니다. 같은 노드에 묶이면 서비스 간 호출 경로가 노드 내부 루프백에 가까워져 지연이 줄어듭니다.
+idle 만 보고 모든 서비스에 같은 단일 값(예: 200m) 을 주는 방식도 가능하지만 그 값이 충분한지 직접 확인할 방법이 없습니다. Spring Boot 7개 서비스는 같은 JVM 옵션을 쓰지만 의존성(R2DBC, Redis, Kafka) 무게가 달라 기동 시간이 서비스마다 1.5배까지 벌어지기 때문에, 단일 값으로 통일하면 가벼운 서비스에는 과하고 무거운 서비스에는 부족할 수 있습니다.
 
-`user-service` Pod의 RESTART 5회는 18시간 동안 누적된 흔적입니다. 원인 진단 절차는 11장 6번에서 다룹니다.
+그래서 본 산정은 **CPU limit 을 바꿔가며 기동 시간을 직접 재고, 한도 안에 충분히 들어오는 값을 서비스별로 채택**합니다. 측정으로 확인된 비례 관계는 다음과 같습니다.
 
-### 3.2 Service (ClusterIP, 라이브)
+```
+JIT 컴파일과 클래스 로딩의 작업량 = CPU × 시간 ≒ 일정
+→ CPU 를 N 배 늘리면 시간이 N 배 짧아진다
+→ 측정한 작업량을 65초 안에 끝내는 데 필요한 CPU 를 역산
+```
 
-| name | type | ClusterIP | port |
+산정 절차:
+
+1. 별도 namespace (예: `opentraum-test`) 에 같은 이미지로 Pod 를 띄운다
+2. CPU limit 을 200m → 250m → 300m 식으로 바꿔가며 `Started <Name> in N seconds` 로그의 N 값을 잰다
+3. 65초 한도 대비 여유 +20% 이상이 나오는 값을 채택한다
+
+여유 +20% 의 근거는 기동 시간의 실측 변동(노드 부하·디스크 캐시 미적재 등) 이 통상 ±15% 안에 들어오므로, 이 변동 폭을 마진으로 덮기 위함입니다. 여유가 +10% 보다 작으면 평소 변동만으로도 65초를 넘겨 CrashLoopBackOff 가 발생할 위험이 생깁니다.
+
+Bellsoft 의 Java on Kubernetes 가이드도 idle 만 보고 limit 을 잡는 위험을 명시적으로 경고합니다.
+
+출처: https://bell-sw.com/blog/7-tips-to-optimize-java-performance-on-kubernetes/
+
+> "Don't set the limits too low. Even if your application consumes fewer resources under stable load, it needs more CPU for warmup and peak loads".
+
+Bellsoft 는 OpenTraum 의 Spring Boot 베이스 이미지(`liberica-openjre-alpine:21`) 의 제작사이므로 같은 JVM 기동 특성에 가장 가까운 출처입니다.
+
+서비스별 측정값과 채택 limit 은 [4장](#4-서비스별-산정) 표에 정리합니다.
+
+### 3.2 startupProbe 한도와 probe 가 없는 서비스의 처리
+
+본 산정에서 startup 실측이 의미를 가지는 이유는 startupProbe 한도를 넘기면 kubelet 이 컨테이너를 SIGTERM 으로 종료하기 때문입니다. 한도는 다음 식으로 계산합니다.
+
+```
+startupProbe 한도 = initialDelaySeconds + periodSeconds × failureThreshold
+```
+
+본 산정 8개 서비스 중 startupProbe 가 정의된 서비스는 gateway, auth-service, user-service, monitoring-service 4개입니다. 앞 3개는 한도 65초(5 + 3 × 20), monitoring 은 한도 95초(5 + 3 × 30) 입니다. event-service, payment-service, reservation-service, web 4개는 startupProbe 가 없어 한도가 적용되지 않습니다.
+
+probe 가 없는 서비스는 기동 시간이 길어져도 컨테이너가 죽지 않으므로 65초 한도가 산정 제약이 되지 않습니다. 기동 시간 실측은 의미가 없고 평소 사용량(idle) 의 약 22배 여유인 200m 을 적용합니다. 대신 새 Pod 가 트래픽을 받기까지 시간이 길어지는 운영 부담은 있습니다 (200m 환경에서 event/payment/reservation 의 실측 기동 시간은 약 77~99초). 본 산정은 이 부담보다 자원 절감을 우선해 200m 으로 유지합니다. 8개 서비스의 probe 정의 차이는 [6.2](#62-probe--종료-정책-한-장-표) 표에 정리합니다.
+
+### 3.3 Memory 측정 idle + 30% 헤드룸 + 64Mi 단위 반올림
+
+측정한 idle Memory 사용량은 서비스별로 219~347Mi 입니다. 트래픽이 들어왔을 때 한계에 닿지 않도록 30% 안전 마진을 더하고, JVM heap 의 자연스러운 단위인 64Mi 로 반올림합니다.
+
+```
+측정 idle = 219~347Mi (서비스별)
+헤드룸 30% (idle × 1.3) = 285~451Mi
+64Mi 단위 반올림 = 512Mi
+```
+
+30% 와 64Mi 는 공식 출처가 있는 수치는 아니고 측정값 + 안전 마진 관행에 따른 정성적 결정입니다. 30% 의 근거는 평소 idle 대비 요청 처리 시 메모리 사용량이 1.2~1.4배 늘어난다는 일반적 관측이고, 64Mi 단위는 Spring Boot 의 heap 청크 단위와 가까워 JVM 이 메모리를 회수하거나 확장할 때 단편화가 적어진다는 점에서 선택했습니다.
+
+Memory 는 CPU 와 달리 startup 시점에 추가 burst 가 작아(보통 idle 의 1.2배 이내) idle 기반 단일 산정으로 충분합니다.
+
+### 3.4 request = limit 으로 두는 정책 적용
+
+CPU 와 Memory 모두 산정한 값을 request 와 limit 두 자리에 동일하게 적용합니다. Kubernetes 공식 블로그(2023-11-16) 가 두 값을 같게 두면 성능이 예측 가능하고 Pod 가 Guaranteed QoS 클래스로 분류된다고 권장합니다.
+
+출처: https://kubernetes.io/blog/2023/11/16/the-case-for-kubernetes-resource-limits/
+
+> "Configure workloads with requests = limits ... the performance is fairly predictable. This also puts the pod into the Guaranteed QoS class".
+
+Memory 의 경우 한도 초과 시 즉시 OOMKill 이 발생하므로 limit 을 request 보다 크게 잡으면 노드 메모리 압박 시 오히려 evict 우선 대상이 됩니다. → 그래서 Memory 도 `request = limit` 으로 둡니다.
+
+### 3.5 Web 은 NGINX 정적 서빙 특성으로 별도 산정
+
+Web 은 NGINX 가 정적 파일을 서빙하는 단순 워크로드라 Spring Boot 와 자원 특성이 완전히 다릅니다. 측정 idle 은 CPU 1m / Memory 3Mi 수준이며 JVM 도 없어 startup 실측 기반 산정이 의미가 없습니다.
+
+```
+측정 idle = 1m / 3Mi
+CPU req = lim = 50m  (idle 약 50배 여유, NGINX startup 안전하한)
+Memory req = lim = 64Mi  (idle 약 20배 여유, 64Mi 최소 단위)
+replica 2 → 1 (학습 환경 트래픽에서 단일 Pod 충분)
+```
+
+Web 의 replica 를 2 에서 1 로 축소한 이유는 학습 환경의 동시 사용자 수가 단일 NGINX Pod 가 충분히 처리 가능한 수준이고, 다른 Spring 서비스가 모두 replica 1 로 운영되는 일관성을 맞추기 위함입니다.
+
+---
+
+## 4. 서비스별 산정
+
+8개 서비스 각자의 측정 idle, 200m 환경 기동 시간, startupProbe 한도, 변경 전 값, 적용 값, QoS 변화를 표로 정리합니다.
+
+| 서비스 | 측정 idle (cpu/mem) | 200m 기동 시간 | startupProbe 한도 | 변경 전 (req cpu/mem) | 변경 전 (lim cpu/mem) | 변경 후 (req=lim cpu/mem) | QoS 변화 |
+|---|---|---|---|---|---|---|---|
+| gateway | 2m / 243Mi | 68.2s | 65s | 500m / 256Mi | 1000m / 512Mi | **300m / 512Mi** | Burstable -> Guaranteed |
+| auth-service | 3m / 306Mi | 66.7s | 65s | 250m / 256Mi | 1000m / 1024Mi | **300m / 512Mi** | Burstable -> Guaranteed |
+| user-service | 2m / 288Mi | 81.4s | 65s | 250m / 256Mi | 1000m / 1024Mi | **350m / 512Mi** | Burstable -> Guaranteed |
+| event-service | 7m / 291Mi | 76.7s | 없음 | 250m / 512Mi | 500m / 768Mi | 200m / 512Mi | Burstable -> Guaranteed |
+| payment-service | 9m / 320Mi | 93.0s | 없음 | 500m / 512Mi | 500m / 512Mi | 200m / 512Mi | Guaranteed 유지 |
+| reservation-service | 9m / 347Mi | 99.1s | 없음 | 500m / 512Mi | 500m / 512Mi | 200m / 512Mi | Guaranteed 유지 |
+| monitoring-service | 3m / 219Mi | 65.2s | 95s | 250m / 256Mi | 1000m / 768Mi | 200m / 512Mi | Burstable -> Guaranteed |
+| web | 1m / 3Mi (replica 2) | n/a | 없음 | 100m / 128Mi | 300m / 256Mi | 50m / 64Mi (replica 1) | Burstable -> Guaranteed |
+
+서비스별로 짚을 점은 다음과 같습니다.
+
+**gateway, user, auth 는 startupProbe 한도가 65초이며 200m 으로는 그 한도를 넘깁니다.** 그래서 [3.1](#31-cpu-는-기동-시간을-직접-재서-서비스별로-잡는다) 의 절차로 limit 을 단계별로 올려가며 다시 측정해, 65초 한도 대비 여유 +20% 이상이 나오는 값을 서비스별로 채택했습니다.
+
+| 서비스 | 채택 limit | 채택 limit 기동 시간 | 65초 대비 여유 |
 |---|---|---|---|
-| auth-service | ClusterIP | <CLUSTER_IP> | 8081 |
-| event-service | ClusterIP | <CLUSTER_IP> | 8083 |
-| gateway | ClusterIP | <CLUSTER_IP> | 8080 |
-| payment-service | ClusterIP | <CLUSTER_IP> | 8085 |
-| reservation-service | ClusterIP | <CLUSTER_IP> | 8084 |
-| user-service | ClusterIP | <CLUSTER_IP> | 8082 |
-| web | ClusterIP | <CLUSTER_IP> | 80 |
+| auth | 300m | 46.9s | +38% |
+| gateway | 300m | 48.4s | +34% |
+| user | 350m | 46.1s | +41% |
 
-모든 백엔드는 `ClusterIP` 타입으로 외부에 직접 노출되지 않습니다. 외부 진입은 `ingress-nginx` 네임스페이스의 NLB를 거쳐 gateway 또는 web으로만 라우팅됩니다(자세한 흐름은 [02 NETWORK] 참조). 서비스 디스커버리는 `*.opentraum.svc.cluster.local` 형태의 클러스터 내부 DNS로 일관되게 처리되며, gateway의 라우팅 규칙도 이 DNS를 사용합니다(5장).
+**event, payment, reservation 은 startupProbe 가 정의되어 있지 않습니다.** 200m 기동 시간이 77~99초로 길지만 probe 가 없어 컨테이너가 죽지 않으므로 65초 한도가 산정 제약이 아닙니다. 200m 으로 유지합니다 (사유는 §3.2 참고).
 
-### 3.3 종합 표 (매니페스트 기준)
+**monitoring 은 startupProbe 한도가 95초로 다른 서비스보다 길게 잡혀 있습니다.** failureThreshold 가 20 이 아닌 30 이라 5 + 30 × 3 = 95초입니다. 200m 기동 시간 65.2초가 한도 95초의 69% 수준이라 마진이 충분합니다. 200m 으로 유지합니다.
 
-| name | replicas | image tag | port | requests (cpu/mem) | limits (cpu/mem) | priorityClass | terminationGrace | startup | readiness | liveness | lazy-init | JAVA_OPTS |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| gateway | 2 | latest | 8080 | 500m / 256Mi | 1000m / 512Mi | opentraum-high | 40s | O | O | O | false | container-aware |
-| auth-service | 1 | latest | 8081 | 250m / 256Mi | 1000m / 1024Mi | opentraum-medium | 40s | O | O | O | false | container-aware |
-| user-service | 1 | latest | 8082 | 250m / 256Mi | 1000m / 1024Mi | opentraum-medium | 40s | O | O | O | false | container-aware |
-| event-service | 1 | SHA(49346e7) | 8083 | 500m / 512Mi | 1000m / 768Mi | (없음) | 10s | O | O | O | true | container-aware |
-| reservation-service | 1 | latest | 8084 | 500m / 512Mi | 500m / 512Mi | opentraum-high | 40s | X | X | X | false | container-aware |
-| payment-service | 1 | latest | 8085 | 500m / 512Mi | 500m / 512Mi | opentraum-high | 40s | X | X | X | false | container-aware |
-| web | 2 | SHA(63964ed) | 80 | 100m / 128Mi | 300m / 256Mi | (없음) | (기본 30s) | X | O(/) | O(/) | (해당없음) | (해당없음) |
+**event-service 의 변경 전 limit memory 768Mi** 는 OpenAI API 응답 캐시 + Kafka 컨슈머 처리 동시 부하 시 OOMKilled 가 반복되어 다른 백엔드의 1.5배로 상향되었던 이력이 있습니다(이전 운영 단계 트러블슈팅 사례). 본 산정 시점의 측정 idle 은 291Mi 로 안정 수렴했고, 다른 서비스와 동일하게 512Mi 로 정규화합니다. OpenAI API 호출량이 학습 환경 부하 범위에서 idle 291Mi + 30% 헤드룸 안에 들어옴을 측정으로 확인했습니다.
 
-"container-aware JAVA_OPTS"는 `-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+TieredCompilation -XX:TieredStopAtLevel=1`을 가리키며, 6개 Spring 서비스 모두 동일한 값을 사용합니다.
+**web 은 replica 도 함께 줄입니다.** 변경 전 replica 2 (각 100m / 128Mi req, 300m / 256Mi lim) 였으나 측정 idle 이 두 Pod 합쳐도 2m / 6Mi 수준으로 단일 Pod 충분합니다. replica 1 + 50m / 64Mi 로 축소합니다.
 
 ---
 
-## 4. Gateway 매니페스트 라인 분석
+## 5. JVM 옵션과 자원 산정의 정합
 
-gateway는 진입 트래픽이 가장 먼저 도착하는 Spring Cloud Gateway 인스턴스이고, 6개 백엔드 중 유일하게 multi-replica로 운영됩니다. 매니페스트의 핵심 필드와 그 의도를 줄글로 정리합니다.
+8개 서비스 중 7개 Spring Boot 서비스(gateway, auth, user, event, payment, reservation, monitoring) 는 모두 동일한 JAVA_OPTS 를 사용합니다. 나머지 1개(web) 는 NGINX 기반이라 JVM 옵션이 적용되지 않습니다. 본 산정의 Memory 512Mi 결정은 이 JVM 옵션과 직접 맞물려 있습니다.
 
-**replicas=2 + RollingUpdate(maxSurge=1, maxUnavailable=0).** 항상 최소 2 Pod가 Ready 상태를 유지합니다. 롤링 업데이트 시 새 Pod 1개를 먼저 띄운 뒤(maxSurge=1) 기존 Pod를 내리는 순서이므로, 업데이트 중에도 Ready 수가 2 아래로 떨어지지 않습니다. 이 설계는 [06 OPERATIONS]에서 정의될 PodDisruptionBudget과 함께 단일 노드 장애 또는 노드 드레인 시 진입 단절을 방지하기 위한 가용성 의도입니다.
+```bash
+-XX:+UseContainerSupport
+-XX:MaxRAMPercentage=75.0
+-XX:+TieredCompilation
+-XX:TieredStopAtLevel=1
+```
 
-**revisionHistoryLimit=2.** 롤백 가능한 ReplicaSet을 직전 2개로 제한해 etcd 부담과 ArgoCD diff 비교 시간을 줄입니다.
+각 옵션의 의미와 본 자원 산정과의 관계는 다음과 같습니다.
 
-**topologySpreadConstraints (maxSkew=1, hostname, ScheduleAnyway, app=gateway).** gateway Pod 2개가 같은 노드에 떨어지지 않도록 분산을 유도하지만, 노드가 부족하면 같은 노드 배치도 허용합니다(`ScheduleAnyway`). 라이브 클러스터에서 gateway 두 Pod가 서로 다른 노드(`ip-<NODE_5>`, `ip-<NODE_2>`)에 있는 결과는 이 제약이 정상 작동했음을 의미합니다.
+| 옵션 | 의미 | 자원 산정과의 관계 |
+|---|---|---|
+| `-XX:+UseContainerSupport` | JVM 이 cgroup limit 을 인식해 호스트 자원이 아닌 컨테이너 자원 기준으로 동작 | Memory limit 512Mi 가 JVM heap 산정의 기준이 됨 |
+| `-XX:MaxRAMPercentage=75.0` | heap 최대 크기를 컨테이너 memory limit 의 75% 로 설정 | 512Mi × 75% = 384Mi heap, 나머지 128Mi 가 metaspace, thread stack, direct memory, GC overhead 헤드룸 |
+| `-XX:+TieredCompilation` | JIT 컴파일러를 단계적으로 적용 (C1 -> C2) | startup 시 빠른 컴파일로 startup CPU burst 를 줄임 |
+| `-XX:TieredStopAtLevel=1` | C1 까지만 컴파일하고 C2(고성능 최적화) 는 안 함 | startup 우선 + 메모리 절약, 장기 처리량 일부 손해 |
 
-**priorityClassName=opentraum-high.** 노드 자원 부족으로 evict가 발생할 때 gateway는 후순위로 밀리지 않습니다. reservation/payment도 high 등급을 받았고, auth/user는 medium입니다. event/web에는 priorityClass가 지정되지 않아 기본값(0)을 사용합니다.
+`MaxRAMPercentage=75` 의 의미를 산정 관점에서 풀어보면 다음과 같습니다. 컨테이너 환경에서 limit 의 100% 를 heap 으로 잡으면 metaspace, thread stack, direct memory, GC overhead 같은 비-heap 영역이 들어갈 자리가 없어 JVM 자체가 시동조차 못 하는 경우가 발생합니다. JVM 공식 권장 범위가 65~75% 인 이유는 비-heap 오버헤드가 보통 25~35% 사이에 분포하기 때문이고, 그 중 상한값인 75% 를 채택해 heap 을 384Mi 까지 잡으면서 비-heap 128Mi 를 확보합니다.
 
-**imagePullSecrets=harbor-secret + image=...:latest + imagePullPolicy=Always.** 사설 Harbor 레지스트리에서 이미지를 받아오기 위해 별도 시크릿을 사용하며, `latest` 태그 + `Always` 풀 정책 조합으로 CD 단계의 새 빌드가 즉시 반영됩니다(자세한 CI/CD 흐름은 [07 CICD]). 단, 동일 태그의 이미지를 새 푸시할 경우 캐시되지 않고 매번 풀을 발생시키는 비용은 인지해야 합니다.
+`TieredStopAtLevel=1` 은 startup 시점의 CPU 부담을 줄이는 옵션입니다. C2 컴파일까지 진행하면 startup 시 컴파일러 자체가 추가 CPU 를 점유해 startup 시간이 늘어납니다. C1 에서 멈추면 컴파일 부담이 줄어 startup 시간이 약 10~20% 짧아집니다. 다만 이 옵션 단독으로는 startupProbe 한도(65초) 를 보장하지 않으며, CPU limit 자체가 충분해야 한다는 점은 [3.1](#31-cpu-는-기동-시간을-직접-재서-서비스별로-잡는다) 의 실측이 보여줍니다. 장기 실행 처리량은 약간 손해이지만 gateway 같은 짧은 라우팅 워크로드에서는 처리량보다 startup 안정성이 더 가치 있습니다.
 
-**envFrom configMapRef=opentraum-config.** 7장에서 설명할 공통 Spring 환경(DB/Redis/Kafka 호스트, profile, shutdown 옵션, 라우팅 규칙)을 한 ConfigMap에서 통째로 주입받습니다. 서비스별 override(예: 백엔드의 R2DBC URL)는 deployment.yml의 `env`에서 추가합니다.
+본 산정의 두 결정(CPU 200~350m, Memory 512Mi) 이 위 JVM 옵션 4개와 어떻게 맞물리는지 정합 확인 시나리오는 다음과 같습니다.
 
-**JAVA_OPTS=`-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+TieredCompilation -XX:TieredStopAtLevel=1`.**
-- `UseContainerSupport`: JVM이 cgroup의 메모리/CPU 한계를 인식해 호스트 자원이 아니라 컨테이너 자원 기준으로 힙과 GC 스레드를 잡습니다.
-- `MaxRAMPercentage=75.0`: 컨테이너 메모리 limit(512Mi)의 75%를 힙 상한으로 사용합니다. 약 384Mi가 힙 상한이며, 나머지 128Mi가 메타스페이스/스레드 스택/네이티브 버퍼/직접 메모리로 분배됩니다.
-- `TieredCompilation` + `TieredStopAtLevel=1`: JIT 컴파일을 C1 단계(레벨 1)에서 멈춥니다. 최고 성능보다 시작 속도와 메모리 절약을 우선시한 선택이며, gateway처럼 짧은 라우팅 로직 위주의 서비스에는 합리적인 trade-off입니다. 튜닝 전(JAVA_OPTS 미적용 또는 부분 적용 상태) 대비 컨테이너 기동 시간이 약 20% 단축되었다는 관측 결과가 내부 카오스 실험에서 관측되었습니다(절대 시간 측정값은 보고서에 없으므로 비율 추정으로 인용).
+- 측정 idle Memory 최대 347Mi (reservation-service) → heap 384Mi 안에 충분히 수용
+- 비-heap 128Mi → metaspace 60~80Mi + thread stack(`-Xss` 기본 1Mi × 50개) + direct buffer + GC overhead 가 안정적으로 들어감
+- startup CPU burst → 서비스별 채택 CPU limit 환경에서 startup 실측으로 65초 startupProbe 한도 안에 기동 완료를 마진 +20% 이상으로 확보 (4장 표 참고)
 
-**SPRING_MAIN_LAZY_INITIALIZATION=false.** 빈 초기화를 lazy로 미루지 않습니다. gateway는 부팅 직후 모든 라우트를 적재해야 첫 요청 처리가 가능하므로 lazy 초기화는 의미가 없고, KafkaListener를 가진 서비스에서는 lazy=true가 메시지 누락 위험을 만들기 때문에(7장 참조) 일관성을 위해 false로 둡니다.
-
-**resources.requests cpu=500m mem=256Mi / limits cpu=1000m mem=512Mi.** 기본 부하 시 0.5 vCPU, 256Mi를 예약하고, 부하 급증 시 최대 1 vCPU와 512Mi까지 burst 가능한 BurstableQoS 클래스를 갖습니다. limit이 request의 2배라 GC 압박 시 일시적인 헤드룸이 있고, JVM 힙 상한이 limit에 묶이므로 OOMKilled가 발생하더라도 노드 전체로 번지지 않습니다.
-
-이 값은 튜닝 후 값입니다. 튜닝 전() 에는 6개 Spring 서비스 모두 mem requests 128Mi, mem limits 256Mi, cpu requests 250m, cpu limits 500m 으로 동일했습니다. 카오스 실험에서 Pod 강제 종료 후 새 Pod 가 startup 단계에서 OOM 으로 죽거나 GC 폭주로 readiness 가 60초가 넘게 false 로 머무는 패턴이 관측되어, 모든 항목을 2배로 상향한 결과 동일 시나리오가 42.51초 안에 자가 복구되는 상태로 정상화되었습니다.
-
-**Probe 3종 (start/readiness/liveness, 모두 GET /actuator/health).**
-
-| 단계 | initialDelay | period | timeout | failureThreshold | 누적 허용 시간 |
-|---|---|---|---|---|---|
-| startupProbe | 5s | 3s | 3s | 20 | 5 + 20 × 3 = 최대 65s |
-| readinessProbe | 0 | 5s | 3s | 2 | (start 통과 후) 약 10s 안에 Ready |
-| livenessProbe | 0 | 10s | 3s | 3 | 30s 연속 실패 시 재시작 |
-
-각 단계 의미는 6장에서 도식화합니다.
-
-**terminationGracePeriodSeconds=40.** Pod 종료 시 Spring의 graceful shutdown(`SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE=30s`)이 진행 중인 요청을 정리할 30초와, 컨테이너 런타임이 SIGKILL을 던지기 전 10초의 안전 마진을 더한 값입니다. 30 + 10 = 40초.
+이 정합이 깨지는 경우는 (1) Memory limit 을 줄이면 heap 384Mi 가 줄어 측정 idle 을 못 받고, (2) CPU limit 을 채택값 이하로 줄이면 startup 실측 마진이 사라져 65초를 넘깁니다. 두 값은 JVM 옵션과 함께 묶여 변경 시 동시 검증이 필요합니다.
 
 ---
 
-## 5. Gateway 라우팅
+## 6. opentraum 워크로드 카탈로그 (보조 정보)
 
-ConfigMap `opentraum-config`는 Spring Cloud Gateway의 라우트 5개를 인덱스 변수(`SPRING_CLOUD_GATEWAY_ROUTES_N_*`)로 주입합니다. 라우트는 prod profile의 application 기본값을 ConfigMap이 환경 변수 우선순위로 보완(override)합니다.
+본 절은 자원 산정의 대상이 되는 8개 서비스가 클러스터에서 어떻게 보이는지 한 장에 압축합니다. 라우팅, Probe, 노드 분포 세 축을 표 + 다이어그램으로 정리하며, 자원 산정 자체가 아닌 워크로드 맥락 이해용 보조 정보입니다.
 
-| index | id | URI | path predicate |
-|---|---|---|---|
-| 0 | auth-service | `http://auth-service:8081` | `/api/v1/auth/**` |
-| 1 | user-service | `http://user-service:8082` | `/api/v1/users/**`, `/api/v1/tenants/**` |
-| 2 | event-service | `http://event-service:8083` | `/api/v1/concerts/**`, `/api/v1/schedules/**`, `/api/v1/admin/**` |
-| 3 | reservation-service | `http://reservation-service:8084` | `/api/v1/reservations/**`, `/api/v1/queue/**`, `/api/v1/live/**`, `/api/v1/lottery/**` |
-| 4 | payment-service | `http://payment-service:8085` | `/api/v1/payment/**` |
+### 6.1 8개 서비스 라우팅
 
-URI에 호스트가 짧은 형태(`http://auth-service:8081`)로만 적힌 점을 주목할 만합니다. Kubernetes의 in-cluster DNS resolver는 같은 네임스페이스 내 호출일 때 `auth-service`만으로도 `auth-service.opentraum.svc.cluster.local`을 찾아 줍니다. ConfigMap의 별도 `*_SERVICE_URL` 항목(예: `AUTH_SERVICE_URL=http://auth-service.opentraum.svc.cluster.local:8081`)은 백엔드 간 직접 호출이 필요한 경우(예: 서비스 to 서비스) 혹은 다른 네임스페이스에서 호출이 들어올 때 FQDN을 명시하기 위한 것입니다.
+Gateway 는 ConfigMap `opentraum-config` 의 인덱스 변수(`SPRING_CLOUD_GATEWAY_ROUTES_N_*`) 로 다음 6개 라우트를 주입받습니다.
+
+| Path | Backend | Port |
+|---|---|---|
+| `/api/v1/auth/**` | auth-service | 8081 |
+| `/api/v1/users/**`, `/api/v1/tenants/**` | user-service | 8082 |
+| `/api/v1/concerts/**`, `/api/v1/schedules/**`, `/api/v1/admin/**` | event-service | 8083 |
+| `/api/v1/reservations/**`, `/api/v1/queue/**`, `/api/v1/live/**`, `/api/v1/lottery/**` | reservation-service | 8084 |
+| `/api/v1/payment/**` | payment-service | 8085 |
+| `/api/v1/monitoring/**` | monitoring-service | 8086 |
+
+monitoring-service 는 본 작업 시점에 추가되어 라우트가 5개에서 6개로 늘었습니다.
 
 ```mermaid
 %%{init:{'theme':'base'}}%%
 flowchart LR
     user((사용자))
     nlb[Ingress NLB]
-    gw[gateway<br/>opentraum-high<br/>replicas=2]
+    gw[gateway<br/>opentraum-high]
     auth[auth-service:8081]
     usr[user-service:8082]
     evt[event-service:8083]
     rsv[reservation-service:8084]
     pay[payment-service:8085]
+    mon[monitoring-service:8086]
+    web[web:80]
 
-    user --> nlb --> gw
+    user --> nlb
+    nlb -- "/" --> web
+    nlb -- "/api/**" --> gw
     gw -- "/api/v1/auth/**" --> auth
     gw -- "/api/v1/users/**<br/>/api/v1/tenants/**" --> usr
     gw -- "/api/v1/concerts/**<br/>/api/v1/schedules/**<br/>/api/v1/admin/**" --> evt
     gw -- "/api/v1/reservations/**<br/>/api/v1/queue/**<br/>/api/v1/live/**<br/>/api/v1/lottery/**" --> rsv
     gw -- "/api/v1/payment/**" --> pay
+    gw -- "/api/v1/monitoring/**" --> mon
 
     style user fill:#FFE7A8,stroke:#C58E00,color:#222
     style nlb fill:#A8D8FF,stroke:#1F6FB2,color:#222
@@ -199,266 +341,258 @@ flowchart LR
     style evt fill:#C7E8C7,stroke:#2E8B57,color:#222
     style rsv fill:#C7E8C7,stroke:#2E8B57,color:#222
     style pay fill:#C7E8C7,stroke:#2E8B57,color:#222
+    style mon fill:#C7E8C7,stroke:#2E8B57,color:#222
+    style web fill:#C7E8C7,stroke:#2E8B57,color:#222
 ```
 
----
+### 6.2 Probe + 종료 정책 한 장 표
 
-## 6. Probe 정책 시각화
+8개 서비스의 Probe 정의와 종료 정책 차이를 정리합니다. 모든 Probe 는 동일한 엔드포인트 `GET /actuator/health` 또는 web 의 `GET /` 를 호출합니다.
 
-Spring 백엔드 5개 중 gateway/auth/user/event는 startup, readiness, liveness 세 단계 Probe를 모두 정의했습니다. reservation과 payment에는 Probe가 정의되지 않아 컨테이너가 부팅하자마자 Service 엔드포인트에 등록되며(8장), 이는 trade-off가 있는 선택입니다.
+| 서비스 | startupProbe | startupProbe 한도 | readinessProbe | livenessProbe | terminationGrace |
+|---|---|---|---|---|---|
+| gateway | O (5s/3s/3s, 20회) | 65s | O (5s/3s, 2회) | O (10s/3s, 3회) | 40s |
+| auth-service | O 동일 | 65s | O 동일 | O 동일 | 40s |
+| user-service | O 동일 | 65s | O 동일 | O 동일 | 40s |
+| event-service | X | 없음 | O 동일 | O 동일 | 10s |
+| payment-service | X | 없음 | X | X | 40s |
+| reservation-service | X | 없음 | X | X | 40s |
+| monitoring-service | O (5s/3s/3s, 30회) | 95s | O 동일 | O 동일 | 40s |
+| web | X | 없음 | O `/` :80 | O `/` :80 | 30s (기본) |
 
-Probe가 정의된 서비스의 단계별 흐름은 다음과 같습니다.
+startupProbe 한도는 `initialDelaySeconds + periodSeconds × failureThreshold` 로 계산합니다. probe 가 정의된 서비스 중 monitoring 만 한도가 95초로 길게 잡혀 있고 나머지는 65초입니다. 각 Probe 의 의미와 graceful shutdown 흐름은 [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) §4 에서 자세히 다룹니다.
 
-```mermaid
-%%{init:{'theme':'base'}}%%
-flowchart LR
-    born((Pod<br/>생성))
-    start[startupProbe<br/>최대 65s]
-    ready[readinessProbe<br/>약 10s]
-    serve[Ready<br/>트래픽 수신]
-    live[livenessProbe<br/>10s × 3 = 30s]
-    sigterm[SIGTERM]
-    grace[graceful shutdown<br/>최대 30s]
-    dead((SIGKILL<br/>40s 도달))
+### 6.3 라이브 노드 분포 (2026-05-03)
 
-    born --> start
-    start -- "fail 20회" --> dead
-    start -- "통과" --> ready
-    ready -- "통과" --> serve
-    serve --> live
-    live -- "fail 3회" --> sigterm
-    serve -- "삭제 요청" --> sigterm
-    sigterm --> grace
-    grace -- "정상 완료" --> dead
-    grace -- "30s 초과" --> dead
-
-    style born fill:#FFE7A8,stroke:#C58E00,color:#222
-    style start fill:#A8D8FF,stroke:#1F6FB2,color:#222
-    style ready fill:#A8D8FF,stroke:#1F6FB2,color:#222
-    style serve fill:#C7E8C7,stroke:#2E8B57,color:#222
-    style live fill:#C7E8C7,stroke:#2E8B57,color:#222
-    style sigterm fill:#FFC9C9,stroke:#B22222,color:#222
-    style grace fill:#FFC9C9,stroke:#B22222,color:#222
-    style dead fill:#E1D4F7,stroke:#6A4FB6,color:#222
-```
-
-모든 Probe는 동일한 엔드포인트 `GET /actuator/health`를 호출합니다. Spring Boot Actuator의 기본 health indicator는 DataSource(R2DBC), Redis, Kafka 등 의존성을 모두 합산해 UP/DOWN을 결정하므로, 외부 의존성 일시 장애가 곧바로 livenessProbe 실패로 이어질 수 있습니다(11장 2번 참조). startupProbe는 cold start의 JVM warm-up + Spring context 초기화 시간을 흡수해 readiness/liveness가 잘못 발화하지 않도록 보호합니다. readinessProbe 실패는 Service 엔드포인트에서 일시적으로 빠지기만 할 뿐 Pod를 죽이지 않고, livenessProbe만이 컨테이너 재시작을 트리거합니다.
-
-이 timing 도 튜닝 전 후가 다릅니다. 튜닝 전에는 startupProbe 가 정의되어 있지 않은 서비스가 있었고, livenessProbe 의 `initialDelaySeconds` 가 60~90초, readinessProbe 의 `initialDelaySeconds` 가 30~60초로 고정되어 있었습니다. Pod 가 실제로는 20초 안에 준비되어도 초기 지연 때문에 트래픽 수신이 30~60초 지연되는 손실이 있었습니다. 튜닝 후 두 Probe 의 `initialDelaySeconds` 를 모두 0 으로 두고 startupProbe 에 위임하는 패턴으로 통일해, Pod 가 준비된 직후 곧바로 트래픽이 흐릅니다(초기 지연 60~90초 → 0초). 동시에 `terminationGracePeriodSeconds` 도 기본 30초에서 10초로 줄여 Pod 종료 시간을 67% 단축했지만, 일부 서비스에서 in-flight 요청이 끝나지 않는 사례가 발견된 뒤 gateway 등 graceful shutdown 이 필요한 서비스는 40초로 다시 상향했습니다.
-
----
-
-## 7. Spring 공통 환경
-
-`opentraum-config` ConfigMap이 주입하는 Spring 공통 환경은 모든 Spring 서비스가 같은 prod profile, graceful shutdown, lifecycle timeout을 따르도록 통일합니다.
-
-| 항목 | 값 | 의미 |
-|---|---|---|
-| SPRING_PROFILES_ACTIVE | prod | application-prod.yml 활성. payment는 deployment에서 `prod,mock`으로 override |
-| SERVER_SHUTDOWN | graceful | Spring Boot가 SIGTERM을 받으면 새 요청을 받지 않고 진행 중 요청만 마저 처리 |
-| SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE | 30s | graceful shutdown 단계별 최대 대기 30초 |
-| terminationGracePeriodSeconds | 40 | Spring 30s + 컨테이너 런타임 안전 마진 10s |
-
-`SPRING_MAIN_LAZY_INITIALIZATION=false`가 6개 Spring 서비스 중 5개에 강제된 이유는 KafkaListener의 동작 방식과 직결됩니다. Spring의 `@KafkaListener`는 lazy 초기화 시 첫 외부 트리거(예: HTTP 요청에 의한 빈 인스턴스화)가 도착해야 컨슈머 그룹에 가입(subscribe)합니다. 결제/예매 도메인처럼 outbox 패턴으로 발행된 이벤트를 즉시 소비해야 하는 서비스는, 컨테이너가 떴는데도 첫 HTTP 요청 전까지 컨슈머가 가입하지 않으면 그 시점에 발행된 메시지를 그룹 oldest offset 기준으로만 소급 소비하거나 커밋된 offset 이후만 받아 누락이 발생할 수 있습니다. 따라서 lazy=false로 두어 ApplicationContext가 부팅될 때 Listener까지 즉시 등록되도록 보장합니다.
-
-예외는 event-service입니다. event 매니페스트는 `SPRING_MAIN_LAZY_INITIALIZATION=true`로 설정되어 있으며, terminationGracePeriodSeconds=10, priorityClass 미지정, 이미지 태그도 SHA로 고정되어 있습니다. 이 정책은 event 서비스가 OpenAI API와 같은 외부 의존성을 가지면서 메시지 컨슈머 책임이 비교적 가볍기에 lazy 초기화로 부팅 시간을 줄이려는 의도로 보이지만, 다른 서비스 정책과 일관되지 않은 부분이므로 [06 OPERATIONS]에서 표준화 후속 과제로 다룰 수 있습니다.
-
----
-
-## 8. 서비스 비교 표
-
-gateway를 기준선으로 두고, 나머지 6개 서비스가 어떻게 다른지만 정리합니다.
-
-| 항목 | gateway (기준) | auth | user | event | reservation | payment | web |
-|---|---|---|---|---|---|---|---|
-| replicas | 2 | 1 | 1 | 1 | 1 | 1 | 2 |
-| priorityClass | opentraum-high | opentraum-medium | opentraum-medium | (없음) | opentraum-high | opentraum-high | (없음) |
-| terminationGrace | 40s | 40s | 40s | **10s** | 40s | 40s | (기본 30s) |
-| 이미지 태그 | latest | latest | latest | **SHA 핀** | latest | latest | **SHA 핀** |
-| imagePullPolicy | Always | Always | Always | **명시 없음** | Always | Always | **명시 없음** |
-| topologySpread key | app=gateway | app=auth | app=user | **없음** | part-of=opentraum | part-of=opentraum | 없음 |
-| podAffinity | 없음 | 없음 | 없음 | 없음 | **rsv/pay/evt 같은 노드 선호** | **rsv/pay/evt 같은 노드 선호** | 없음 |
-| podAntiAffinity | (spread로 대체) | 없음 | 없음 | 없음 | **rsv 끼리 분산** | **pay 끼리 분산** | 없음 |
-| initContainer | 없음 | 없음 | 없음 | 없음 | **wait-for-payment** | 없음 | 없음 |
-| startupProbe | O | O | O | O | **X** | **X** | **X** |
-| readinessProbe | O `/actuator/health` | O 동일 | O 동일 | O 동일 | **X** | **X** | O `/` :80 |
-| livenessProbe | O `/actuator/health` | O 동일 | O 동일 | O 동일 | **X** | **X** | O `/` :80 |
-| lazy-init | false | false | false | **true** | false | false | (해당없음) |
-| profile | prod | prod | prod | prod | prod | **prod,mock** | (해당없음) |
-| requests cpu/mem | 500m / 256Mi | **250m** / 256Mi | **250m** / 256Mi | 500m / **512Mi** | 500m / **512Mi** | 500m / **512Mi** | **100m / 128Mi** |
-| limits cpu/mem | 1000m / 512Mi | 1000m / **1024Mi** | 1000m / **1024Mi** | 1000m / **768Mi** | **500m / 512Mi** | **500m / 512Mi** | **300m / 256Mi** |
-| QoS class | Burstable | Burstable | Burstable | Burstable | **Guaranteed** | **Guaranteed** | Burstable |
-| DB override | 없음 | `opentraum_auth` MariaDB | `opentraum_user` MariaDB | postgres `opentraum_event` | `reservation-db.kafka` | `payment-db.kafka` | (해당없음) |
-| 비고 | 진입 라우터 | medium 등급 | medium 등급, RESTART 5 흔적 | 외부 OpenAI API 키 사용 | payment ready 대기 후 기동 | mock profile 활성 | nginx 정적 |
-
-특히 주목할 차이는 다음과 같습니다.
-
-**reservation/payment의 Probe 부재.** Probe가 없다는 것은 (1) 부팅 즉시 Service 엔드포인트에 등록되어 트래픽을 받을 위험과 (2) 헬스 체크 실패로 자동 재시작이 일어나지 않는 trade-off를 모두 받는다는 뜻입니다. reservation의 경우 initContainer `wait-for-payment`가 부팅 순서를 강제하므로 (1) 위험은 부분적으로 보완됩니다. 그러나 (2) 자동 재시작 부재는 운영자의 직접 개입이 필요해질 수 있어 [06 OPERATIONS]의 표준화 후속 과제 후보입니다.
-
-**reservation/payment의 Guaranteed QoS.** requests와 limits가 동일한 cpu 500m, mem 512Mi입니다. Guaranteed QoS는 노드 자원 부족 시 evict 우선순위가 가장 낮습니다(BestEffort > Burstable > Guaranteed). 결제와 예매 도메인의 안정성 우선 정책으로 해석할 수 있습니다.
-
-**event-service의 외부 SHA 이미지 + lazy=true + grace=10s.** 외부 OpenAI API 키 사용과 lazy 초기화 조합은 부팅 시간을 줄이지만, terminationGracePeriod 10s는 SIGTERM 후 외부 API 호출이 진행 중일 때 30초 graceful shutdown을 끝까지 기다려 주지 못합니다. 정책 일관성 측면에서 점검 대상입니다.
-
-event-service의 mem limits 가 다른 백엔드보다 큰 768Mi 인 점도 튜닝 결과입니다. 튜닝 전 512Mi 환경에서 OpenAI API 응답 캐시 + Kafka 컨슈머 처리 동시 부하 시 OOMKilled 가 반복되어, 1.5배 상향된 값입니다(운영 단계 트러블슈팅 사례).
-
-**user-service의 RESTART 5.** 18시간 동안 5회 재시작했고, 매니페스트상 livenessProbe는 정상 정의되어 있습니다. 11장 6번에서 진단 절차를 다룹니다.
-
----
-
-## 9. 컬러 다이어그램 모음
-
-5장의 라우팅, 6장의 Probe 흐름에 더해, opentraum 네임스페이스 워크로드의 노드 분포를 한 장으로 정리합니다.
+8개 서비스의 라이브 Pod 노드 분포는 다음과 같습니다.
 
 ```mermaid
 %%{init:{'theme':'base'}}%%
 flowchart TB
-    subgraph N1["ip-<NODE_2>"]
-      gw1[gateway-mtf9r]
-      web1[web-chcjb]
+    subgraph N1["worker-1"]
+      gw1[gateway]
+      web1[web]
     end
-    subgraph N2["ip-<NODE_3>"]
-      pay[payment-ft72w]
+    subgraph N2["worker-2"]
+      pay[payment-service]
     end
-    subgraph N3["ip-<NODE_4>"]
-      auth[auth-mtm2k]
-      usr[user-k2r2r<br/>RESTART 5]
+    subgraph N3["worker-3"]
+      auth[auth-service]
+      usr[user-service]
     end
-    subgraph N4["ip-<NODE_5>"]
-      gw2[gateway-4km96]
+    subgraph N4["worker-4"]
+      gw2[gateway]
     end
-    subgraph N5["ip-<NODE_6>"]
-      web2[web-jzbp6]
+    subgraph N5["worker-5"]
+      mon[monitoring-service]
     end
-    subgraph N6["ip-<NODE_7>"]
-      evt[event-xpq4s]
-      rsv[reservation-ppcdh]
+    subgraph N6["worker-6"]
+      evt[event-service]
+      rsv[reservation-service]
     end
 
     style gw1 fill:#A8D8FF,stroke:#1F6FB2,color:#222
     style gw2 fill:#A8D8FF,stroke:#1F6FB2,color:#222
     style web1 fill:#C7E8C7,stroke:#2E8B57,color:#222
-    style web2 fill:#C7E8C7,stroke:#2E8B57,color:#222
     style auth fill:#C7E8C7,stroke:#2E8B57,color:#222
-    style usr fill:#FFC9C9,stroke:#B22222,color:#222
+    style usr fill:#C7E8C7,stroke:#2E8B57,color:#222
     style evt fill:#C7E8C7,stroke:#2E8B57,color:#222
     style rsv fill:#C7E8C7,stroke:#2E8B57,color:#222
     style pay fill:#C7E8C7,stroke:#2E8B57,color:#222
+    style mon fill:#C7E8C7,stroke:#2E8B57,color:#222
 ```
 
-gateway 두 Pod와 web 두 Pod는 각각 서로 다른 노드에 분산되었고(topologySpread 효과), reservation과 event는 한 노드(`ip-<NODE_7>`)에 함께 떠 있습니다(reservation의 podAffinity 효과). user-service Pod에는 RESTART 5의 흔적이 남아 적색으로 표시했습니다.
+reservation 과 event 가 한 노드에 묶여 있는 이유는 reservation 매니페스트의 podAffinity 가 reservation/payment/event 를 같은 노드로 끌어 모으는 선호(weight 80) 를 갖고 있기 때문입니다. 같은 노드에 묶이면 서비스 간 호출 경로가 노드 내부 루프백에 가까워져 지연이 줄어듭니다. 이 분포 자체의 균형 조정(podAntiAffinity 강화, descheduler 도입) 은 본 산정 비범위입니다.
+
+### 6.4 Spring 공통 환경
+
+8개 중 7개 Spring 서비스는 ConfigMap `opentraum-config` 가 주입하는 공통 환경을 따릅니다. graceful shutdown 과 lifecycle timeout 이 본 산정의 terminationGracePeriodSeconds 결정과 직접 연결됩니다.
+
+| 항목 | 값 | 의미 |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | prod | application-prod.yml 활성. payment 는 deployment 에서 `prod,mock` 으로 override |
+| `SERVER_SHUTDOWN` | graceful | Spring Boot 가 SIGTERM 을 받으면 새 요청을 받지 않고 진행 중 요청만 마저 처리 |
+| `SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE` | 30s | graceful shutdown 단계별 최대 대기 30초 |
+| `terminationGracePeriodSeconds` | 40 | Spring 30s + 컨테이너 런타임 안전 마진 10s |
 
 ---
 
-## 10. 정량
+## 7. 정량 / 튜닝
 
-| 항목 | 튜닝 전 | 튜닝 후 | 변화 |
+본 산정으로 변하는 자원 합계와 클러스터 점유율 변화를 정리합니다.
+
+### 7.1 8개 서비스 자원 합계 변화
+
+opentraum 네임스페이스 8개 서비스의 request / limit 합계가 다음과 같이 변합니다.
+
+| 항목 | 변경 전 | 변경 후 | 변화 |
 |---|---|---|---|
-| gateway replicas | 1 | 2 | SPOF 해소, 무중단 배포 가능 |
-| 6 Spring 서비스 mem requests | 128Mi | 256Mi | 2배 |
-| 6 Spring 서비스 mem limits | 256Mi | 512Mi | 2배 |
-| event-service mem limits | 512Mi (OOMKilled) | 768Mi | 1.5배 |
-| 6 Spring 서비스 cpu requests | 250m | 500m | 2배 |
-| 6 Spring 서비스 cpu limits | 500m | 1000m | 2배 |
-| Probe initialDelaySeconds (live/ready) | 60~90초 / 30~60초 | 0초 (startup 위임) | 트래픽 수신까지 30~60초 단축 |
-| terminationGracePeriodSeconds | 30초 (기본) | 10초 / 40초 (서비스별) | 일반 67% 단축, graceful 필요 서비스는 재상향 |
-| revisionHistoryLimit | 10 (기본) | 2 | 80% 감소, ArgoCD diff 시간 단축 |
-| Pod 강제 삭제 후 복구 | 60초 이상 (deviated) | 42.51초 (completed) | 카오스 자가 복구 통과 |
+| CPU request | 2700m | 1800m | -900m (-33%) |
+| Memory request | 2816Mi | 3648Mi | +832Mi (+30%, idle 보호) |
+| CPU limit | 6100m | 1800m | -4300m (-70%) |
+| Memory limit | 5632Mi | 3648Mi | -1984Mi (-35%) |
 
-위 표의 값은 모두 라이브 매니페스트와 카오스 저널(`../chaos/journal.json`) 또는 초기 매니페스트 측정값에 대응됩니다. 단일 항목의 효과가 아니라 위 항목들이 동시에 적용되었을 때 카오스 실험이 deviated 에서 completed 로 전환되었다는 점이 핵심입니다. 정책별 인과 분석은 [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) §9 에서 카테고리별로 다룹니다.
+변경 전 합계는 web replica 2 기준이고 변경 후는 replica 1 기준입니다. web 의 자원이 한 Pod 분 빠지면서 합계 차이가 약간 더 큽니다.
 
----
+Memory request 만 늘어나는 이유는 변경 전 일부 서비스(gateway, auth, user) 의 request 256Mi 가 측정 idle (243~306Mi) 보다 작아 evict 보호가 약했던 상태였기 때문입니다. 변경 후 512Mi 로 통일되어 모든 서비스의 request 가 측정 idle + 30% 헤드룸을 안정적으로 덮습니다.
 
-## 11. 트러블슈팅
+CPU 와 Memory limit 모두 큰 폭으로 줄어드는 이유는 변경 전 Burstable QoS 인 서비스들의 limit 이 측정 idle 의 수십~수백 배로 과대 설정되어 있었기 때문입니다. Guaranteed 로 통일하면서 limit 이 측정 기반 값으로 정규화됩니다.
 
-### 11.1 CrashLoopBackOff with Probe failure
+### 7.2 일반 노드 클러스터 점유율 변화
 
-**증상.** `kubectl get pods -n opentraum`에서 특정 Pod가 STATUS=`CrashLoopBackOff`, RESTARTS가 빠르게 증가.
+opentraum 네임스페이스의 변화가 일반 노드 클러스터 전체 점유율에 미치는 영향입니다.
 
-**진단 절차.**
-1. `kubectl describe pod -n opentraum <pod>`의 Events 섹션에서 Probe 실패 종류(Liveness/Readiness/Startup) 확인.
-2. `kubectl logs -n opentraum <pod> --previous`로 종료 직전 stack trace 확인.
-3. `kubectl exec -n opentraum <pod> -- curl -s localhost:<port>/actuator/health`로 Actuator 응답 직접 확인. DOWN이면 어떤 component가 DOWN인지 응답 본문에서 확인.
-4. timeoutSeconds(3s)가 너무 짧아 cold start나 GC stop-the-world에 걸린 경우인지 GC 로그/heap 사용량 확인.
+| 자원 | 변경 전 점유 | 변경 후 점유 | 점유율 변화 |
+|---|---|---|---|
+| CPU request | 6950m / 13510m (51.4%) | 6050m / 13510m (44.8%) | -6.6%p |
+| Memory request | 10274Mi / 23044Mi (44.6%) | 11106Mi / 23044Mi (48.2%) | +3.6%p |
+| CPU limit | 14950m / 13510m (110.7%) | 10650m / 13510m (78.8%) | -31.9%p |
+| Memory limit | 21284Mi / 23044Mi (92.4%) | 19300Mi / 23044Mi (83.8%) | -8.6%p |
 
-### 11.2 외부 의존성 일시 장애가 Probe로 전파
+특히 CPU limit 점유율이 110.7% 에서 78.8% 로 떨어지는 점이 핵심 효과입니다. 변경 전에는 모든 워크로드가 동시에 limit 까지 burst 하면 노드가 1.1배 over-commit 상태로 throttle 이 광범위하게 발생할 수 있었습니다. 변경 후에는 78.8% 로 약 21% 의 burst 헤드룸이 노드 단위로 확보됩니다.
 
-**증상.** Redis 또는 MariaDB가 일시적으로 끊겼을 때 멀쩡히 떠 있던 Pod가 줄줄이 재시작.
+CPU request 점유율 51.4% -> 44.8% 의 6.6%p 감소는 일반 노드 약 0.5 대 분량의 여유로, 신규 Pod 스케줄링 자리가 확보됨을 뜻합니다.
 
-**원인.** `/actuator/health`는 기본 설정상 모든 health indicator(R2DBC/Redis/Kafka)를 합산해 DOWN을 반환합니다. 의존성 1개가 일시 장애면 Pod 자신은 정상이어도 livenessProbe가 실패해 SIGTERM을 받습니다.
+### 7.3 회수 자원 합계
 
-**권고 (개선 후속 과제).** Spring Boot Actuator의 liveness/readiness 엔드포인트 분리를 활성화해(`management.endpoint.health.probes.enabled=true`) `livenessProbe`는 `/actuator/health/liveness`, `readinessProbe`는 `/actuator/health/readiness`로 분기. liveness는 자기 자신만, readiness는 외부 의존성까지 포함하도록 그룹화하면 일시 장애가 자동 재시작으로 전파되지 않습니다.
+본 산정으로 클러스터에서 회수되는 자원은 다음과 같습니다.
 
-### 11.3 KafkaListener subscribe 안 됨
+| 자원 | 회수량 | 절감률 | 의미 |
+|---|---|---|---|
+| CPU request | 900m | -33% | 일반 노드 약 0.5 대 분량의 신규 Pod 스케줄 여유 |
+| CPU limit | 4300m | -70% | 노드 over-commit 상태 해소 |
+| Memory limit | 1984Mi | -35% | 노드 메모리 압박 시 안전 마진 확대 |
 
-**증상.** 메시지를 발행했는데 컨슈머가 받지 못함.
-
-**진단 절차.**
-1. `kubectl exec -n kafka <kafka-broker-pod> -- bin/kafka-consumer-groups.sh --bootstrap-server my-kafka-cluster-kafka-bootstrap.kafka:9092 --describe --group <group-id>`로 그룹 상태가 `Stable`인지, MEMBERS가 비어 있지 않은지 확인.
-2. MEMBERS가 0이면 컨슈머가 가입되지 않은 것. 해당 서비스의 `SPRING_MAIN_LAZY_INITIALIZATION` 값을 확인하고 `false`인지 검증. event-service는 `true`이므로 의도한 동작인지 별도 확인.
-3. `kubectl logs -n opentraum deploy/<service>` 시작 부분에서 `Subscribed to topic(s)` 로그가 나오는지 확인.
-
-### 11.4 ImagePullBackOff
-
-**증상.** 새 ReplicaSet의 Pod가 STATUS=`ImagePullBackOff` 또는 `ErrImagePull`.
-
-**진단 절차.**
-1. `kubectl describe pod`에서 Events의 pull error 메시지 확인. 401/403이면 `harbor-secret`이 해당 ns에 존재하는지 `kubectl get secret -n opentraum harbor-secret`으로 확인.
-2. 시크릿이 없거나 다른 ns에서 복사되지 않았다면 [07 CICD]의 시크릿 배포 절차로 재생성.
-3. 이미지 경로 오타(`<HARBOR_REGISTRY>/<HARBOR_PROJECT>/...`) 확인.
-
-### 11.5 graceful shutdown 미완료
-
-**증상.** Pod 종료 시 진행 중이던 요청이 502로 끊김.
-
-**진단 절차.**
-1. `terminationGracePeriodSeconds` ≥ Spring `spring.lifecycle.timeout-per-shutdown-phase` + 충분한 마진인지 확인. event(10s)는 30s 미만이므로 30s graceful shutdown을 완수하지 못합니다.
-2. PreStop hook이 없는 경우, kube-proxy가 endpoint에서 Pod를 제거하는 것과 SIGTERM 도착이 동시에 일어나 일부 요청이 종료 중인 Pod로 라우팅될 수 있습니다. 필요 시 `lifecycle.preStop.exec`로 짧은 sleep을 추가.
-
-### 11.6 user-service RESTART 5회 흔적
-
-**증상.** `kubectl get pods -n opentraum`에서 user-service Pod의 RESTARTS=5, age 18h.
-
-**진단 절차.**
-1. `kubectl describe pod -n opentraum user-service-5d9d945986-k2r2r`의 Last State에서 종료 사유(OOMKilled / Error / Probe failure) 확인.
-2. `kubectl logs -n opentraum user-service-5d9d945986-k2r2r --previous`로 이전 컨테이너 종료 직전 로그 확인. Spring stack trace 또는 OOM 메시지 검색.
-3. `kubectl get events -n opentraum --field-selector involvedObject.name=user-service-5d9d945986-k2r2r`로 시간순 이벤트 확인.
-4. Memory 사용량이 limits(1024Mi)에 근접했다면 [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md)의 Grafana JVM 대시보드에서 heap, non-heap, GC 빈도 확인.
-5. livenessProbe 실패가 원인이라면 11.2의 의존성 전파 시나리오 가능성 검토.
+Memory request 는 +832Mi 늘지만, 이는 회수가 아니라 evict 보호를 강화하기 위한 의도적 투자입니다.
 
 ---
 
-## 12. 진단 명령어
+## 8. 트러블슈팅
+
+본 절은 자원 산정과 직접 관련된 시나리오만 정리합니다. ImagePullBackOff 같은 자원 무관 이슈는 본 문서 범위 밖이며 [06 OPERATIONS](OPENTRAUM-INFRA-06-OPERATIONS.md) 의 운영 절에서 다룹니다.
+
+### 8.1 CrashLoopBackOff with startupProbe failure
+
+증상: 서비스 Pod 가 STATUS=`CrashLoopBackOff`, RESTARTS 가 빠르게 증가합니다.
+
+진단 순서:
+
+1. `kubectl describe pod -n opentraum <pod>` 의 Events 섹션에서 startupProbe 실패가 나오는지 확인합니다.
+2. `kubectl logs -n opentraum <pod> --previous` 로 이전 컨테이너 종료 직전 로그에서 `Started <Name> in N seconds` 의 N 값을 확인합니다. 65초보다 크면 startup 이 못 끝난 것입니다.
+3. CPU limit 이 [4장](#4-서비스별-산정) 의 채택값으로 적용되어 있는지 확인합니다. 채택값보다 작으면 기동 시간이 늘어나 65초 한도를 넘길 수 있습니다.
+4. JVM 옵션 `-XX:TieredStopAtLevel=1` 이 적용되어 있는지 확인합니다. 이 옵션이 빠지면 C2 컴파일 부담이 더해져 기동 시간이 약 10~20% 더 길어집니다.
+5. 다른 Pod 와 같은 노드에서 CPU 경합이 심한지 `kubectl top node` 로 확인합니다. 일시적 노드 과부하는 채택값이 적용된 환경에서도 기동을 늦출 수 있습니다.
+
+### 8.2 OOMKilled 발생
+
+증상: Pod 의 STATUS=`OOMKilled`, `kubectl describe pod` 의 Last State 에 `Reason: OOMKilled` 가 표시됩니다.
+
+진단 순서:
+
+1. `kubectl top pod -n opentraum <pod> --containers` 로 OOM 직전 메모리 사용량을 확인합니다. 512Mi limit 에 근접했는지 확인합니다.
+2. JVM heap 사용량이 384Mi(512Mi × 75%) 를 초과했는지 [05 MONITORING](OPENTRAUM-INFRA-05-MONITORING.md) 의 Grafana JVM 대시보드에서 확인합니다.
+3. heap 이 아닌 비-heap 영역(metaspace, direct memory) 이 128Mi 를 넘었는지 `jcmd <pid> VM.native_memory summary` 로 확인합니다.
+4. heap 384Mi 를 초과한다면 메모리 누수 또는 설계 문제로 본 산정의 512Mi limit 자체가 부족한 케이스입니다. 측정 idle 이 산정 시점 대비 어떻게 변했는지 재측정해 산정 재검토가 필요합니다.
+
+### 8.3 CPU throttle 로 인한 응답 지연
+
+증상: Pod 자체는 살아 있지만 응답 시간이 평소보다 길고 `kubectl top pod` 의 CPU 사용량이 200m 부근에서 정체됩니다.
+
+진단 순서:
+
+1. `kubectl exec -n opentraum <pod> -- cat /sys/fs/cgroup/cpu.stat` 의 `nr_throttled` 값이 증가하는지 확인합니다.
+2. 트래픽이 채택 limit 을 일상적으로 초과하는 경우라면 측정 idle 가정이 깨진 것입니다. 평시 측정값을 재산정해 limit 상향 여부를 검토합니다.
+3. 평시에는 채택 limit 안에 들어오는데 특정 트래픽 패턴(예: GC full pause, large request batch) 에서만 throttle 이 발생한다면 limit 상향 대신 패턴 자체의 코드 최적화가 우선입니다.
+
+### 8.4 evict 발생
+
+증상: `kubectl get events -n opentraum` 에 `Evicted` 이벤트가 출현하고 Pod STATUS=`Failed`, Reason=`Evicted` 입니다.
+
+진단 순서:
+
+1. `kubectl describe pod -n opentraum <pod>` 의 Status 메시지에서 evict 사유(`The node was low on resource: memory`) 를 확인합니다.
+2. 본 산정 적용 후라면 모든 8개 서비스가 Guaranteed QoS 이므로 BestEffort, Burstable Pod 가 먼저 evict 되어야 정상입니다. 같은 ns 또는 같은 노드의 다른 ns Pod 가 먼저 evict 되었는지 `kubectl get events -A | grep Evicted` 로 시간순 확인합니다.
+3. Guaranteed Pod 가 그대로 evict 되었다면 노드 자체가 자원 한계에 도달한 것입니다. 노드 분포 불균형 해소(별도 작업) 가 필요한 신호이며, 단기 대응은 `kubectl drain` 으로 다른 노드로 재배치하는 것입니다.
+
+### 8.5 단일 CPU 값으로 통일했을 때 무거운 서비스가 못 뜨는 사례
+
+증상: Spring 7개 서비스 중 startupProbe 가 정의된 서비스만 `CrashLoopBackOff` 가 되고 나머지는 정상 기동합니다. 죽은 Pod 의 마지막 로그가 `Started <Name> in N seconds` 직전이거나 직후이며 N 이 startupProbe 한도에 가깝습니다.
+
+원인: idle 측정값만 보고 모든 서비스에 같은 CPU limit (예: 200m) 을 주면 의존성이 가벼운 서비스는 한도 안에 들어오지만 무거운 서비스는 한도를 넘깁니다. 서비스별 200m 환경 기동 시간 실측값은 다음과 같습니다.
+
+| 서비스 | 기동 시간 (200m) | startupProbe 한도 | 한도 안 통과 여부 |
+|---|---|---|---|
+| monitoring | 65.2s | 95s | 통과 |
+| auth | 66.7s | 65s | 초과 |
+| gateway | 68.2s | 65s | 초과 |
+| event | 76.7s | 없음 | n/a (죽지 않음) |
+| user | 81.4s | 65s | 초과 |
+| payment | 93.0s | 없음 | n/a (죽지 않음) |
+| reservation | 99.1s | 없음 | n/a (죽지 않음) |
+
+같은 JVM 옵션과 같은 200m 환경에서도 의존성 무게 차이로 기동 시간이 1.5배까지 벌어집니다. 단일 값 통일이 안전하지 않다는 직접 증거입니다.
+
+대응:
+
+1. 죽은 서비스의 200m 환경 기동 시간을 위 표 또는 직접 측정으로 확인합니다.
+2. 별도 namespace 에 같은 이미지로 Pod 를 띄워 CPU limit 을 단계별로 올려가며 기동 시간을 다시 측정합니다 ([3.1](#31-cpu-는-기동-시간을-직접-재서-서비스별로-잡는다) 의 절차).
+3. 한도 대비 여유 +20% 이상 나오는 값을 채택해 해당 서비스의 deployment.yml 만 상향합니다. 다른 서비스의 limit 은 그대로 둡니다.
+4. ArgoCD 가 sync 하면 RollingUpdate 로 새 Pod 가 채택값으로 뜹니다. `kubectl get pods -n opentraum` 으로 STATUS=Running 을 확인합니다.
+
+본 산정에서 이 사례에 따라 채택된 값은 [4장](#4-서비스별-산정) 표의 채택 limit 열에 정리되어 있습니다.
+
+### 8.6 Burstable -> Guaranteed 전환 시 startup 직후 RedisReactiveHealthIndicator timeout
+
+증상: auth-service 를 250m / 512Mi (req=lim) 로 적용한 직후 신규 Pod 가 startupProbe 한도(65s) 직후 RedisReactiveHealthIndicator timeout 으로 SIGTERM 을 받고 `CrashLoopBackOff` 가 발생합니다. `Started AuthApplication in N seconds` 로그상 N 은 56.3s 로 65s 한도 자체는 통과한 상태입니다.
+
+원인: 250m 자체로는 startup 56.3s 로 한도 안에 들어왔지만, Burstable -> Guaranteed 전환으로 burst 가 차단되면서 startup 직후 RedisReactiveHealthIndicator 의 첫 호출이 65s 한도 안에 끝나지 못한 것입니다. 이전 Pod 는 Burstable (req 250m / lim 1000m) 로 1000m 까지 burst 가능해 startup 22s 였으나, req=lim=250m 으로 전환되며 burst 가 차단되어 startup 자체는 56.3s 까지 늘어나고 직후 health check 에서 시간이 모자랍니다.
+
+대응: 250m -> 300m 으로 상향 적용해 안정화했습니다. 실측 결과는 다음과 같습니다.
+
+| 항목 | 값 |
+|---|---|
+| 채택 limit | 300m (req=lim) |
+| 신규 Pod startup | 46.9s (auth-service-6f9779b65f-kwprq 실측) |
+| QoS | Guaranteed |
+| 65s 한도 대비 마진 | +38% |
+| restart 횟수 | 0 |
+
+교훈: Guaranteed 전환 시 burst 를 못 받으니 변경 전 limit 만 보고 산정하면 안 되고, 같은 채택값으로 startup 마진을 +30% 이상 확보하는 것이 안전합니다. startup 자체가 한도 안에 들어오더라도 startup 직후의 health check 첫 호출까지 한도 안에 끝나야 한다는 점을 같이 봐야 합니다.
+
+---
+
+## 9. 진단 명령어
+
+본 산정을 검증하거나 점검할 때 자주 쓰는 명령어입니다.
 
 ```bash
-# Pod 노드 분포와 RESTART 횟수 한 번에 보기
+# 서비스별 실제 CPU/Memory 사용량 (측정 idle 재확인)
+kubectl top pod -n opentraum --containers
+
+# 변경 후 자원 정의 확인 (request, limit, QoS)
+kubectl get pod -n opentraum -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.qosClass}{"\n"}{end}'
+
+# Pod 노드 분포와 RESTART 횟수
 kubectl get pods -n opentraum -o wide
 
-# gateway Pod 상세(스케줄, 이벤트, Probe 결과)
-kubectl describe pod -n opentraum -l app=gateway
+# 노드별 점유율과 allocatable 확인
+kubectl describe node | grep -E "Name:|cpu|memory|Allocated"
 
-# 최근 200줄 로그
-kubectl logs -n opentraum deploy/auth-service --tail=200
+# 개별 노드의 점유 상세 (CPU/Memory request 합)
+kubectl describe node <node-name> | grep -A 20 "Allocated resources"
 
-# CrashLoop 직전 컨테이너 로그
-kubectl logs -n opentraum -l app=gateway --previous
+# OOMKilled 이력 (최근 컨테이너 종료 사유)
+kubectl get pod -n opentraum -o json | jq '.items[] | {pod: .metadata.name, state: .status.containerStatuses[0].lastState}'
 
-# Actuator health 직접 호출
-kubectl exec -n opentraum deploy/gateway -- curl -s localhost:8080/actuator/health
+# CPU throttle 카운터
+kubectl exec -n opentraum deploy/gateway -- cat /sys/fs/cgroup/cpu.stat
 
-# 공용 ConfigMap 전체 보기
-kubectl get configmap -n opentraum opentraum-config -o yaml
+# JVM heap 사용량 직접 조회 (Actuator)
+kubectl exec -n opentraum deploy/gateway -- curl -s localhost:8080/actuator/metrics/jvm.memory.used
 
-# 모든 Deployment 롤아웃 상태
-kubectl rollout status deploy -n opentraum
+# 클러스터 전체 evict 이벤트
+kubectl get events -A --field-selector reason=Evicted
 
-# 네임스페이스별 part-of 라벨 확인
-kubectl get ns -L app.kubernetes.io/part-of,app.kubernetes.io/component
-
-# Kafka 컨슈머 그룹 상태
-kubectl exec -n kafka my-kafka-cluster-kafka-0 -- bin/kafka-consumer-groups.sh \
-  --bootstrap-server my-kafka-cluster-kafka-bootstrap.kafka:9092 --list
-
-# 서비스 디스커버리 DNS 확인
-kubectl run -n opentraum tmp-dns --image=busybox:1.36 --rm -it --restart=Never -- \
-  nslookup auth-service.opentraum.svc.cluster.local
+# 모든 Deployment 자원 정의 한눈에
+kubectl get deploy -n opentraum -o custom-columns=NAME:.metadata.name,CPU_REQ:.spec.template.spec.containers[0].resources.requests.cpu,MEM_REQ:.spec.template.spec.containers[0].resources.requests.memory,CPU_LIM:.spec.template.spec.containers[0].resources.limits.cpu,MEM_LIM:.spec.template.spec.containers[0].resources.limits.memory
 ```

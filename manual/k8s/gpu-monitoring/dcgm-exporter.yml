@@ -51,6 +51,8 @@ spec:
           effect: NoSchedule
       hostPID: true
       hostNetwork: false
+      # 노드 자원 압박 시 운영 서비스보다 먼저 evict (06 §2)
+      priorityClassName: opentraum-best-effort
       containers:
         - name: dcgm-exporter
           image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04

@@ -46,6 +46,8 @@ loki:
 
 singleBinary:
   replicas: 1
+  # 노드 자원 압박 시 운영 서비스보다 먼저 evict (06 §2)
+  priorityClassName: opentraum-best-effort
   persistence:
     enabled: true
     size: 10Gi
@@ -82,6 +84,8 @@ singleBinary:
 
 gateway:
   replicas: 1
+  # 노드 자원 압박 시 운영 서비스보다 먼저 evict (06 §2)
+  priorityClassName: opentraum-best-effort
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: kubernetes.io/hostname

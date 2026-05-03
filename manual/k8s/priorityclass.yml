@@ -25,3 +25,12 @@ description: "OpenTraum 프론트엔드 (web)"
 value: 100
 globalDefault: false
 preemptionPolicy: PreemptLowerPriority
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: opentraum-best-effort
+description: "장애 발생 시 먼저 evict 되어도 되는 워크로드 (모니터링 인프라, GPU 시뮬레이터, ArgoCD, monitoring-service)"
+value: -100
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority

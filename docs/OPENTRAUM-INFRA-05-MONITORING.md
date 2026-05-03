@@ -89,6 +89,7 @@
 
 - **정의**: Prometheus 가 평가한 alert rule 결과를 받아 deduplication / grouping / silencing / routing 후 외부 채널(Slack, Email, PagerDuty, Webhook 등) 로 발송하는 컴포넌트입니다.
 - **Prometheus 가 직접 알림을 보내지 않는 이유**: alert 평가 책임(rule 표현식 계산) 과 발송 책임(어디로 어떻게 보낼지) 을 분리하기 위함입니다. → 그래서 발송 채널을 Slack 에서 PagerDuty 로 바꿔도 Prometheus 룰은 그대로 두고 Alertmanager config 만 수정하면 됩니다. 또 Prometheus 가 HA 로 여러 인스턴스가 동일 alert 를 평가해도 Alertmanager 가 dedup 해 한 번만 발송합니다.
+- **본 시스템 현 상태**: Alertmanager 의 receiver 는 kube-prometheus-stack 기본값인 `null` 만 정의되어 있어 Slack / PagerDuty / 이메일 등 외부 채널이 연결되어 있지 않습니다. alert 가 firing 되어도 Alertmanager UI 에 남을 뿐 외부로 발송되지 않습니다.
 
 ### 1.5.7 본 시스템에서 도구들이 어떻게 맞물리는가
 
@@ -115,7 +116,6 @@ flowchart LR
     subgraph cluster[클러스터 컴포넌트]
         Node[Node<br/>containerd 로그 디렉토리]
         KSM[kube-state-metrics]
-        NodeExp[node-exporter]
     end
 
     Alloy[Alloy DaemonSet<br/>모든 노드]
@@ -142,7 +142,7 @@ flowchart LR
     Prom -- "scrape /metrics" --> Gateway
     Prom -- "scrape /metrics" --> Auth
     Prom -- "scrape /metrics" --> KSM
-    Prom -- "scrape :9100" --> NodeExp
+    Alloy -- "노드 메트릭 보강" --> Prom
 
     %% read path
     Grafana -- "datasource HTTP :9090" --> Prom
@@ -150,7 +150,7 @@ flowchart LR
     User -- "HTTPS" --> Grafana
 
     class Gateway,Auth,UserSvc,Event,Reservation,Payment,Web app
-    class Node,KSM,NodeExp app
+    class Node,KSM app
     class Alloy,LokiGW,Loki,Prom,Grafana obs
     class User user
 ```
@@ -222,7 +222,11 @@ PVC 라이브 인벤토리는 다음과 같습니다.
 
 DaemonSet 인 alloy 는 일반 워커 노드그룹(`skala3-cloud1-team8-ng`)에서만 기동됩니다. GPU 노드는 `nvidia-device-plugin` 과 `dcgm-exporter` 가 담당하며, 일반 로그 수집 DaemonSet 이 GPU 노드의 Pod slot 을 사용하지 않도록 분리합니다. `loki-canary` 는 실습용 검증 컴포넌트라 운영 배포에서는 비활성화합니다.
 
-GPU monitoring 리소스는 Helm release 에 포함하지 않고 `manual/k8s/gpu-monitoring/` raw manifest 로 관리합니다. `dcgm-exporter.yml` 에 DaemonSet, Service, ServiceMonitor 가 함께 들어 있고, `grafana-dashboard.yml` 은 `grafana_dashboard: "1"` 라벨 ConfigMap 으로 Grafana sidecar 가 자동 등록합니다. 따라서 GPU 대시보드(`uid: opentraum-gpu`)를 복구할 때는 두 manifest 를 다시 적용하면 됩니다.
+`prometheus-node-exporter` 는 chart 가 Service / ServiceMonitor 매니페스트는 만들지만 DaemonSet 자체는 비활성화되어 라이브에 Pod 가 떠 있지 않습니다. 노드 단위 메트릭(CPU / 메모리 / 디스크) 은 alloy 가 자체 수집기로 대체 수집하므로 별도의 node-exporter Pod 는 필요하지 않습니다.
+
+monitoring 네임스페이스의 13개 Pod (Prometheus, Alertmanager, Grafana, Loki, loki-gateway, Alloy DaemonSet, kube-state-metrics, kube-prometheus-stack-operator) 는 모두 best-effort QoS 로 적용되어 있습니다. Prometheus / Alertmanager 는 kube-prometheus-stack chart values 만으로는 Pod resources 를 비울 수 없어 Prometheus / Alertmanager CR 을 직접 patch 해 best-effort 로 전환했고, 나머지 컴포넌트는 values 의 `resources: {}` 로 처리됩니다. monitoring 스택은 학습 환경에서 노드 부족 시 가장 먼저 evict 되는 우선순위로 운영하는 것이 정책입니다.
+
+GPU monitoring 리소스는 Helm release 에 포함하지 않고 `manual/k8s/gpu-monitoring/` raw manifest 로 관리합니다. `dcgm-exporter.yml` 에 DaemonSet, Service, ServiceMonitor 가 함께 들어 있고, `grafana-dashboard.yml` 은 `grafana_dashboard: "1"` 라벨 ConfigMap 으로 Grafana sidecar 가 자동 등록합니다. 따라서 GPU 대시보드(`uid: opentraum-gpu`)를 복구할 때는 두 manifest 를 다시 적용하면 됩니다. dcgm-exporter DaemonSet (GPU 노드 2 Pod) 도 best-effort QoS 로 운영됩니다.
 
 ---
 
@@ -260,7 +264,8 @@ flowchart LR
     Grafana[Grafana]
 
     %% Metrics
-    Node -- "scrape :9100" --> Prom
+    Node -- "노드 메트릭 (alloy 보강)" --> Alloy
+    Alloy -- "node metrics" --> Prom
     App -- "expose /metrics" --> SM
     SM -- "scrape" --> Prom
 
@@ -283,7 +288,7 @@ flowchart LR
     class App,Node app
 ```
 
-각 화살표 라벨에 포트와 프로토콜을 명시했습니다. metrics 는 HTTP scrape, logs 는 HTTP push 로 입수되고 Grafana 가 두 backend 모두 데이터소스로 보유합니다.
+각 화살표 라벨에 포트와 프로토콜을 명시했습니다. metrics 는 HTTP scrape, logs 는 HTTP push 로 입수되고 Grafana 가 두 backend 모두 데이터소스로 보유합니다. `prometheus-node-exporter` DaemonSet 자체는 비활성이라 노드 단위 메트릭은 alloy 가 보강 수집합니다.
 
 ---
 
@@ -298,7 +303,7 @@ flowchart LR
 - **podAntiAffinity**: 빈 문자열 `""`. chart 기본값인 self-only podAntiAffinity 를 비활성화했습니다. Prometheus 는 단일 replica 라 자기 자신끼리 회피해도 효과가 없고, 아래 cross anti-affinity 와 라벨 키가 충돌해 의도치 않은 우선순위 충돌이 생기기 때문입니다.
 - **topologySpreadConstraints**: `maxSkew=1`, `topologyKey=kubernetes.io/hostname`, `whenUnsatisfiable=ScheduleAnyway`, `labelSelector` 는 `app.kubernetes.io/name=prometheus`. 같은 라벨 Pod 끼리 노드별 차이를 1 이내로 유지하도록 스케줄러에 힌트를 줍니다. 강제는 아니므로 노드가 부족하면 Pending 으로 빠지지 않습니다.
 - **affinity.podAntiAffinity.preferred**: `weight=100`, `labelSelector=opentraum.io/heavy=true`, `topologyKey=kubernetes.io/hostname`. Prometheus 가 다른 무거운 Pod 와 같은 노드에 떨어지지 않도록 선호 표시를 줍니다.
-- **resources**: requests `mem 512Mi / cpu 100m`, limits `mem 1Gi / cpu 500m`. 7일 retention + 6노드 규모 메트릭 수집을 감안한 보수적 한도입니다.
+- **resources**: 라이브 Pod 는 best-effort QoS 로 적용되어 있습니다. kube-prometheus-stack chart values 의 `prometheus.prometheusSpec.resources` 만으로는 Pod resources 가 비워지지 않아 Prometheus CR 을 직접 patch (`spec.resources: {}`) 해 best-effort 로 전환했습니다. 학습 환경에서 노드 부족 시 monitoring 컴포넌트를 우선 evict 시키기 위한 정책입니다.
 
 `opentraum.io/heavy=true` 라벨은 Prometheus, Loki, MariaDB 가 공통으로 들고 있어, 세 Pod 가 서로 다른 노드를 선호하게 만드는 단일 식별자 역할을 합니다.
 
@@ -313,7 +318,7 @@ flowchart LR
 - **sidecar.datasources.enabled**: `true`. Grafana Pod 옆에 sidecar 컨테이너가 떠서 ConfigMap 을 감시합니다.
 - **additionalDataSources**: Loki 한 건이 인라인으로 등록됩니다. `type=loki`, `url=http://loki.monitoring.svc.cluster.local:3100`, `isDefault=false`.
 - **topologySpreadConstraints**: `maxSkew=1`, `ScheduleAnyway`, `labelSelector=app.kubernetes.io/name=grafana`.
-- **resources**: requests `mem 128Mi / cpu 50m`, limits `mem 256Mi / cpu 300m`.
+- **resources**: best-effort QoS. `grafana.resources: {}` 로 비워두어 학습 환경에서 노드 부족 시 가장 먼저 evict 되도록 운영합니다.
 
 데이터소스 자동 등록 흐름은 다음과 같이 동작합니다. sidecar 컨테이너(`kiwigrid/k8s-sidecar:2.7.1`) 가 monitoring 네임스페이스의 ConfigMap 중 라벨 `grafana_datasource: "1"` 이 붙은 것을 watch 하다가, 매칭되는 ConfigMap 의 데이터를 Grafana provisioning 디렉토리로 마운트하거나 Grafana HTTP API 로 주입합니다. 새 ConfigMap 을 apply 하면 Grafana 재기동 없이 데이터소스가 추가됩니다. Loki 는 values 의 `additionalDataSources` 로 인라인 등록됩니다.
 
@@ -324,7 +329,8 @@ flowchart LR
 `values-kube-prometheus-stack.yaml` 의 `alertmanager.alertmanagerSpec` 은 다음과 같이 단순합니다.
 
 - **topologySpreadConstraints**: `maxSkew=1`, `ScheduleAnyway`, `labelSelector=app.kubernetes.io/name=alertmanager`.
-- **resources**: requests `mem 64Mi / cpu 10m`, limits `mem 128Mi / cpu 100m`.
+- **resources**: 라이브 Pod 는 best-effort QoS. Prometheus 와 동일하게 chart values 만으로는 Pod resources 를 비울 수 없어 Alertmanager CR 을 직접 patch (`spec.resources: {}`) 해 best-effort 로 전환했습니다.
+- **receiver**: `null` 만 정의된 kube-prometheus-stack 기본값 그대로입니다. Slack / PagerDuty / 이메일 등 외부 알림 채널은 현재 연결되어 있지 않으며, alert 가 firing 되어도 외부로 발송되지 않고 Alertmanager UI 에만 남습니다. 채널 연결은 추후 별도 작업으로 진행 예정입니다.
 
 라이브 Pod `alertmanager-kube-prometheus-stack-alertmanager-0` 은 Alertmanager 본체(`v0.32.0`) + config-reloader(`v0.90.1`) 사이드카로 구성되어 있고 9093(HTTP) / 9094(cluster) 포트를 노출합니다.
 
@@ -346,10 +352,10 @@ flowchart LR
 - **singleBinary.podLabels**: `opentraum.io/heavy: "true"` (cross anti-affinity 매칭).
 - **singleBinary.topologySpreadConstraints**: `maxSkew=1`, `ScheduleAnyway`, `labelSelector=app.kubernetes.io/component=single-binary`.
 - **singleBinary.affinity.podAntiAffinity.preferred**: `weight=100`, `labelSelector=opentraum.io/heavy=true`, `topologyKey=kubernetes.io/hostname`. 다른 무거운 Pod 와 다른 노드 선호.
-- **singleBinary.resources**: requests `mem 256Mi / cpu 50m`, limits `mem 512Mi / cpu 500m`.
+- **singleBinary.resources**: best-effort QoS. `singleBinary.resources: {}` 로 비워두어 학습 환경에서 노드 부족 시 evict 우선순위를 가장 높게 둡니다.
 - **gateway.replicas**: `1`. NGINX 기반 게이트웨이 한 Pod (`loki-gateway`).
 - **gateway.topologySpreadConstraints**: `maxSkew=1`, `labelSelector=app.kubernetes.io/component=gateway`.
-- **gateway.resources**: requests `mem 32Mi / cpu 10m`, limits `mem 128Mi / cpu 100m`.
+- **gateway.resources**: best-effort QoS. 동일하게 `gateway.resources: {}` 로 비워둡니다.
 
 Alloy 는 `loki-gateway` (`http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push`) 로 push 하고, gateway 가 SingleBinary 의 3100 포트로 reverse proxy 합니다.
 
@@ -357,7 +363,7 @@ Alloy 는 `loki-gateway` (`http://loki-gateway.monitoring.svc.cluster.local/loki
 
 ## 8. Alloy DaemonSet과 로그 수집 흐름
 
-Alloy 는 일반 워커 노드당 1 Pod 의 DaemonSet 입니다. `values-alloy.yaml` 은 chart values 로 Pod 로그 수집 파이프라인과 일반 워커 노드 배치 기준을 함께 정의합니다. `alloy/configmap-patch.yaml` 은 수동 ConfigMap 패치가 필요할 때 참고하는 보조 파일입니다.
+Alloy 는 일반 워커 노드당 1 Pod 의 DaemonSet 입니다. `values-alloy.yaml` 은 chart values 로 Pod 로그 수집 파이프라인과 일반 워커 노드 배치 기준을 함께 정의합니다. `alloy/configmap-patch.yaml` 은 수동 ConfigMap 패치가 필요할 때 참고하는 보조 파일입니다. Alloy Pod 도 `alloy.resources: {}` 로 비워 best-effort QoS 로 운영하며, 노드 메트릭(prometheus-node-exporter 가 비활성이라 누락되는 노드 단위 지표) 도 alloy 가 자체 수집기로 보강합니다.
 
 ```
 discovery.kubernetes "pods"  -> Pod 자원 watch
@@ -427,6 +433,9 @@ topologySpreadConstraints 는 같은 `labelSelector` 매칭 Pod 끼리만 분산
 - **Alloy 노드당 1 Pod (DaemonSet)**: taint 가 없는 일반 워커 노드에서 기동되어 모든 일반 워크로드 노드의 Pod stdout 을 수집합니다.
 - **Grafana sidecar 자동 등록**: ConfigMap 라벨 `grafana_datasource: "1"` 만 붙이면 데이터소스가 자동으로 추가되어 수동 등록 작업이 0 입니다.
 - **무거운 Pod cross anti-affinity preferred**: 노드 부족 시 강제 분산하지 않아 Pending 위험을 회피하면서, 여유 있을 때는 Prometheus / Loki / MariaDB 가 서로 다른 노드로 자연스럽게 흩어집니다.
+- **monitoring 스택 best-effort QoS**: monitoring 네임스페이스의 13개 Pod (Prometheus, Alertmanager, Grafana, Loki, loki-gateway, Alloy, kube-state-metrics, kube-prometheus-stack-operator) 와 gpu-monitoring 의 dcgm-exporter (2 Pod) 까지 모두 best-effort 로 운영합니다. Prometheus / Alertmanager 는 chart values 만으로는 비워지지 않아 CR patch 로 적용했습니다. opentraum 네임스페이스의 monitoring-service, nemotron-vllm, flux-image 도 동일 정책으로 best-effort 입니다. 노드 부족 시 monitoring / 시뮬레이터 Pod 를 우선 evict 시키기 위한 정책입니다.
+- **Alertmanager receiver 미연결**: 현재 receiver 는 `null` 만 정의된 기본값으로 Slack / PagerDuty / 이메일 채널이 연결되어 있지 않습니다. 외부 발송이 필요한 시점에 별도 작업으로 연결합니다.
+- **HPA / KEDA 미사용**: monitoring 스택은 HPA 도 KEDA 도 사용하지 않으며, 모든 컴포넌트는 고정 replica 로 운영합니다. SingleBinary Loki / 단일 Prometheus 구성이라 자동 스케일링 대상이 아닙니다.
 
 ---
 
@@ -477,11 +486,13 @@ topologySpreadConstraints 는 같은 `labelSelector` 매칭 Pod 끼리만 분산
 
 증상: Prometheus alert 는 firing 인데 외부 채널(이메일, Slack 등) 로 도착하지 않습니다.
 
+본 시스템 현 상태에서는 Alertmanager 의 receiver 가 kube-prometheus-stack 기본값인 `null` 만 정의되어 있어, 외부 채널이 연결되어 있지 않은 것이 정상입니다. 따라서 alert 가 firing 되어도 외부 발송이 일어나지 않으며, Alertmanager UI / API 로만 확인 가능합니다.
+
 진단 순서:
 
-1. `kubectl get secret -n monitoring -l app.kubernetes.io/name=alertmanager` 로 Alertmanager config secret 을 확인합니다.
-2. secret 안의 `alertmanager.yaml` 의 receiver / route 설정을 점검합니다.
-3. `kubectl logs -n monitoring alertmanager-kube-prometheus-stack-alertmanager-0 -c alertmanager` 로 발송 시도 로그를 확인합니다.
+1. `kubectl get secret -n monitoring -l app.kubernetes.io/name=alertmanager` 로 Alertmanager config secret 을 확인합니다. receiver 가 `null` 인 기본값이라면 외부 발송 자체가 비활성 상태입니다.
+2. 외부 채널을 연결하려면 secret 안의 `alertmanager.yaml` 에 receiver(예: Slack webhook, SMTP, PagerDuty integration key) 와 route 를 추가하고 `helm upgrade` 또는 secret patch 로 반영합니다.
+3. 채널 연결 후에도 발송이 안되면 `kubectl logs -n monitoring alertmanager-kube-prometheus-stack-alertmanager-0 -c alertmanager` 로 발송 시도 로그를 확인합니다.
 
 ---
 
